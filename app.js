@@ -14,6 +14,8 @@
   var MODE_FR = {}; MODES.forEach(function (m) { MODE_FR[m[0]] = m[1]; });
   var MODE_C = { Cool: "var(--cool)", Heat: "var(--heat)", Automatic: "#6b5fe0", Dry: "var(--dry)", Fan: "#5c6672" };
   var FANS = ["One", "Two", "Three", "Four", "Five"];
+  var VV = [["Auto", "Auto"], ["One", "Haut"], ["Two", "Mi-haut"], ["Three", "Milieu"], ["Four", "Mi-bas"], ["Five", "Bas"], ["Swing", "Balayage"]];
+  var VH = [["Auto", "Auto"], ["Left", "Gauche"], ["LeftCentre", "G-centre"], ["Centre", "Centre"], ["RightCentre", "D-centre"], ["Right", "Droite"], ["Swing", "Balayage"]];
 
   var SCENES = [
     { n: "Confort", c: { power: true, operationMode: "Automatic", setTemperature: 21 }, i: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>' },
@@ -225,6 +227,8 @@
       '<div class="pwrlbl">' + (u.power ? "En marche" : "Arrêt") + '</div>' +
       '<div class="lbl">Mode</div><div class="modes">' + modes + '</div>' +
       '<div class="lbl">Ventilation</div><div class="fans"><button class="fauto" data-fan="Auto" aria-pressed="' + (u.fan_speed === "Auto") + '">AUTO</button><div class="fanlvl">' + bars + '</div></div>' +
+      '<div class="lbl">Volet vertical</div><div class="vane">' + VV.map(function (v) { return '<button data-vv="' + v[0] + '">' + v[1] + '</button>'; }).join("") + '</div>' +
+      '<div class="lbl">Volet horizontal</div><div class="vane">' + VH.map(function (v) { return '<button data-vh="' + v[0] + '">' + v[1] + '</button>'; }).join("") + '</div>' +
       '<div class="meta"><span>Pièce <b>' + fmt(u.room_temperature) + '°</b></span><span>30 jours <b>' + (kwh != null ? fmt(kwh) + " kWh" : "…") + '</b></span></div>' +
       '</section>';
   }
@@ -251,7 +255,11 @@
     if (b.hasAttribute("data-power")) { u.power = !u.power; draw(); send(u, { power: u.power }, u.power ? "Allumée" : "Éteinte"); return; }
     if (b.hasAttribute("data-mode")) { var m = b.getAttribute("data-mode"); if (m === u.mode) return; u.mode = m; draw(); send(u, { operationMode: m }, MODE_FR[m]); return; }
     if (b.hasAttribute("data-fan")) { var f = b.getAttribute("data-fan"); if (f === u.fan_speed) return; u.fan_speed = f; draw(); send(u, { setFanSpeed: f }, f === "Auto" ? "Ventilation auto" : "Ventilation " + (FANS.indexOf(f) + 1)); return; }
+    if (b.hasAttribute("data-vv")) { var vv = b.getAttribute("data-vv"); markVane(b); send(u, { vaneVerticalDirection: vv }, "Volet vertical"); return; }
+    if (b.hasAttribute("data-vh")) { var vh = b.getAttribute("data-vh"); markVane(b); send(u, { vaneHorizontalDirection: vh }, "Volet horizontal"); return; }
   }
+
+  function markVane(b) { var row = b.parentNode; var kids = row.querySelectorAll("button"); for (var i = 0; i < kids.length; i++) kids[i].removeAttribute("aria-pressed"); b.setAttribute("aria-pressed", "true"); }
 
   var setTimers = {};
   function debounceSet(u) {

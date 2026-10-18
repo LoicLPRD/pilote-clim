@@ -1,5 +1,5 @@
 // Cache de l'interface uniquement. Les appels au serveur ne sont jamais mis en cache.
-var CACHE = "pilote-clim-v1";
+var CACHE = "pilote-clim-v2";
 var SHELL = ["./", "index.html", "app.js", "manifest.json", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", function (e) {
