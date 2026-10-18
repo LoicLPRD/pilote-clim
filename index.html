@@ -85,6 +85,11 @@
   .fanlvl button { flex: 1; height: 100%; display: flex; align-items: flex-end; }
   .fanlvl button .bar { width: 100%; }
 
+  .vane { display: flex; gap: 8px; width: 100%; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .vane::-webkit-scrollbar { display: none; }
+  .vane button { flex: 0 0 auto; background: var(--panel); border-radius: 12px; padding: 11px 14px; color: var(--muted); font-size: .8rem; white-space: nowrap; }
+  .vane button[aria-pressed="true"] { background: var(--acc); color: #fff; }
+
   .meta { width: 100%; display: flex; justify-content: space-between; margin-top: 26px; color: var(--muted); font-size: .8rem; }
   .meta b { color: var(--fg); font-weight: 500; }
 

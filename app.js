@@ -14,8 +14,45 @@
   var MODE_FR = {}; MODES.forEach(function (m) { MODE_FR[m[0]] = m[1]; });
   var MODE_C = { Cool: "var(--cool)", Heat: "var(--heat)", Automatic: "#6b5fe0", Dry: "var(--dry)", Fan: "#5c6672" };
   var FANS = ["One", "Two", "Three", "Four", "Five"];
-  var VV = [["Auto", "Auto"], ["One", "Haut"], ["Two", "Mi-haut"], ["Three", "Milieu"], ["Four", "Mi-bas"], ["Five", "Bas"], ["Swing", "Balayage"]];
-  var VH = [["Auto", "Auto"], ["Left", "Gauche"], ["LeftCentre", "G-centre"], ["Centre", "Centre"], ["RightCentre", "D-centre"], ["Right", "Droite"], ["Swing", "Balayage"]];
+  // Volets : pictogrammes d'orientation du flux d'air, dessines a l'execution.
+  function arw(ox, oy, deg, len) {
+    var r = deg * Math.PI / 180, x = ox + Math.cos(r) * len, y = oy + Math.sin(r) * len;
+    var h1 = r + Math.PI - 0.5, h2 = r + Math.PI + 0.5;
+    return 'M' + ox + ' ' + oy + 'L' + x.toFixed(1) + ' ' + y.toFixed(1) +
+      'M' + x.toFixed(1) + ' ' + y.toFixed(1) + 'l' + (Math.cos(h1) * 4).toFixed(1) + ' ' + (Math.sin(h1) * 4).toFixed(1) +
+      'M' + x.toFixed(1) + ' ' + y.toFixed(1) + 'l' + (Math.cos(h2) * 4).toFixed(1) + ' ' + (Math.sin(h2) * 4).toFixed(1);
+  }
+  var UNIT_V = '<path d="M3 4h7" stroke-width="2.4"/>', UNIT_H = '<path d="M7 4h10" stroke-width="2.4"/>';
+  var AUTO_I = '<path d="M7 18 12 6l5 12M8.8 14h6.4"/>';
+  var VV = [
+    ["Auto", "Automatique", AUTO_I],
+    ["One", "Haut", UNIT_V + '<path d="' + arw(5, 7, 8, 15) + '"/>'],
+    ["Two", "Mi-haut", UNIT_V + '<path d="' + arw(5, 7, 26, 15) + '"/>'],
+    ["Three", "Milieu", UNIT_V + '<path d="' + arw(5, 7, 45, 15) + '"/>'],
+    ["Four", "Mi-bas", UNIT_V + '<path d="' + arw(5, 7, 64, 15) + '"/>'],
+    ["Five", "Bas", UNIT_V + '<path d="' + arw(5, 7, 82, 15) + '"/>'],
+    ["Swing", "Balayage", UNIT_V + '<path d="M8 8a12 12 0 0 1 10 12M8 8l.4 3.6M8 8l3.4 1.2M18 20l-3.4-.8M18 20l.8-3.4" />']
+  ];
+  var VH = [
+    ["Auto", "Automatique", AUTO_I],
+    ["Left", "Gauche", UNIT_H + '<path d="' + arw(12, 7, 145, 13) + '"/>'],
+    ["LeftCentre", "Gauche-centre", UNIT_H + '<path d="' + arw(12, 7, 118, 14) + '"/>'],
+    ["Centre", "Centre", UNIT_H + '<path d="' + arw(12, 7, 90, 14) + '"/>'],
+    ["RightCentre", "Droite-centre", UNIT_H + '<path d="' + arw(12, 7, 62, 14) + '"/>'],
+    ["Right", "Droite", UNIT_H + '<path d="' + arw(12, 7, 35, 13) + '"/>'],
+    ["Swing", "Balayage", UNIT_H + '<path d="M5 15h14M5 15l3-3M5 15l3 3M19 15l-3-3M19 15l-3 3"/>']
+  ];
+  (function () {
+    var st = document.createElement("style");
+    st.textContent =
+      ".vgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;width:100%}" +
+      ".vgrid button{height:54px;background:var(--panel);border-radius:14px;display:grid;place-items:center;color:var(--muted);transition:background .2s,color .2s,transform .12s}" +
+      ".vgrid button:active{transform:scale(.94)}" +
+      ".vgrid button svg{width:24px;height:24px}" +
+      ".vgrid button[aria-pressed=true]{background:var(--acc);color:#fff}" +
+      ".vcap{width:100%;text-align:left;margin-top:9px;font-size:.78rem;color:var(--muted);min-height:1.2em}";
+    document.head.appendChild(st);
+  })();
 
   var SCENES = [
     { n: "Confort", c: { power: true, operationMode: "Automatic", setTemperature: 21 }, i: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>' },
@@ -227,8 +264,7 @@
       '<div class="pwrlbl">' + (u.power ? "En marche" : "Arrêt") + '</div>' +
       '<div class="lbl">Mode</div><div class="modes">' + modes + '</div>' +
       '<div class="lbl">Ventilation</div><div class="fans"><button class="fauto" data-fan="Auto" aria-pressed="' + (u.fan_speed === "Auto") + '">AUTO</button><div class="fanlvl">' + bars + '</div></div>' +
-      '<div class="lbl">Volet vertical</div><div class="vane">' + VV.map(function (v) { return '<button data-vv="' + v[0] + '">' + v[1] + '</button>'; }).join("") + '</div>' +
-      '<div class="lbl">Volet horizontal</div><div class="vane">' + VH.map(function (v) { return '<button data-vh="' + v[0] + '">' + v[1] + '</button>'; }).join("") + '</div>' +
+      vaneBlock(u, "Orientation verticale", "vv", VV) + vaneBlock(u, "Orientation horizontale", "vh", VH) +
       '<div class="meta"><span>Pièce <b>' + fmt(u.room_temperature) + '°</b></span><span>30 jours <b>' + (kwh != null ? fmt(kwh) + " kWh" : "…") + '</b></span></div>' +
       '</section>';
   }
@@ -255,11 +291,21 @@
     if (b.hasAttribute("data-power")) { u.power = !u.power; draw(); send(u, { power: u.power }, u.power ? "Allumée" : "Éteinte"); return; }
     if (b.hasAttribute("data-mode")) { var m = b.getAttribute("data-mode"); if (m === u.mode) return; u.mode = m; draw(); send(u, { operationMode: m }, MODE_FR[m]); return; }
     if (b.hasAttribute("data-fan")) { var f = b.getAttribute("data-fan"); if (f === u.fan_speed) return; u.fan_speed = f; draw(); send(u, { setFanSpeed: f }, f === "Auto" ? "Ventilation auto" : "Ventilation " + (FANS.indexOf(f) + 1)); return; }
-    if (b.hasAttribute("data-vv")) { var vv = b.getAttribute("data-vv"); markVane(b); send(u, { vaneVerticalDirection: vv }, "Volet vertical"); return; }
-    if (b.hasAttribute("data-vh")) { var vh = b.getAttribute("data-vh"); markVane(b); send(u, { vaneHorizontalDirection: vh }, "Volet horizontal"); return; }
+    if (b.hasAttribute("data-vv")) { setVane(u, "vv", b.getAttribute("data-vv")); draw(); send(u, { vaneVerticalDirection: b.getAttribute("data-vv") }, "Orientation verticale"); return; }
+    if (b.hasAttribute("data-vh")) { setVane(u, "vh", b.getAttribute("data-vh")); draw(); send(u, { vaneHorizontalDirection: b.getAttribute("data-vh") }, "Orientation horizontale"); return; }
   }
 
-  function markVane(b) { var row = b.parentNode; var kids = row.querySelectorAll("button"); for (var i = 0; i < kids.length; i++) kids[i].removeAttribute("aria-pressed"); b.setAttribute("aria-pressed", "true"); }
+  // Le serveur ne renvoie pas encore la position des volets : on memorise le dernier choix sur l'appareil.
+  function getVane(u, k) { return get("vane_" + k + "_" + u.id); }
+  function setVane(u, k, v) { put("vane_" + k + "_" + u.id, v); }
+  function vaneBlock(u, title, k, list) {
+    var cur = getVane(u, k), name = "";
+    var btns = list.map(function (v) {
+      var on = v[0] === cur; if (on) name = v[1];
+      return '<button data-' + k + '="' + v[0] + '" aria-label="' + v[1] + '" title="' + v[1] + '" aria-pressed="' + on + '">' + svg(v[2], 1.8) + '</button>';
+    }).join("");
+    return '<div class="lbl">' + title + '</div><div class="vgrid">' + btns + '</div><div class="vcap">' + (name || "Touchez une orientation") + '</div>';
+  }
 
   var setTimers = {};
   function debounceSet(u) {
