@@ -56,7 +56,7 @@
     fails: +(get("fails") || 0), lockUntil: +(get("lockUntil") || 0),
     units: [], view: get("view") || "home", energy: {}, busyUntil: 0,
     rooms: getJ("rooms", {}), season: get(DK + "season") || "auto", house: getJ("house", null),
-    hinted: get("hinted") === "1", linky: null,
+    hinted: get("hinted") === "1", linky: null, cmo: 0,
     doc: getJ(DEMO ? "demo_doc" : "doc", {}), server: null, elog: [], clim: [], view2: null
   };
   if (DEMO) { S.rooms = getJ("demo_rooms", {}); S.house = getJ("demo_house", null); }
@@ -479,39 +479,85 @@
   }
   // Consommation reelle (Linky) : maison mesuree, part de la climatisation sur les memes jours.
   function linkyHTML(c, D) {
-    var t = S.tariff, now = new Date(), mk = iso(now).slice(0, 7);
-    var pk = iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)).slice(0, 7);
-    var dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    var cur = 0, prev = 0, n = 0, clim = 0, meas = 0;
-    Object.keys(D).forEach(function (k) {
-      if (k.slice(0, 7) === mk) { var cd = climDay(k, c); cur += D[k]; n++; clim += cd.kwh; if (cd.measured) meas++; }
-      else if (k.slice(0, 7) === pk) prev += D[k];
+    var t = S.tariff, now = new Date(), y = now.getFullYear(), mo = now.getMonth(), mk = iso(now).slice(0, 7);
+    var pk = iso(new Date(y, mo - 1, 1)).slice(0, 7);
+    var dim = new Date(y, mo + 1, 0).getDate();
+    // Toutes les valeurs du mois portent sur les memes jours : ceux deja mesures par le Linky.
+    var days = Object.keys(D).filter(function (k) { return k.slice(0, 7) === mk; }).sort();
+    var n = days.length, cur = 0, clim = 0, meas = 0, prev = 0, mitsu = 0;
+    days.forEach(function (k) { var cd = climDay(k, c); cur += D[k]; clim += cd.kwh; mitsu += c.days[k] || 0; if (cd.measured) meas++; });
+    Object.keys(D).forEach(function (k) { if (k.slice(0, 7) === pk) prev += D[k]; });
+    var rooms = S.units.map(function (u) {
+      var v = 0; (S.energy[u.id] || []).forEach(function (e) { if (days.indexOf(e.d) >= 0) v += e.kwh; });
+      return { u: u, kwh: v };
     });
+    var scale = mitsu > 0 ? clim / mitsu : 0; // repartition de la part des clims entre les pieces
+    rooms.forEach(function (r) { r.kwh = meas ? r.kwh * scale : r.kwh; });
     var proj = n >= 3 ? cur / n * dim : null;
-    // Facture estimee : energie mesuree + abonnement au prorata des jours mesures.
     var subCur = S.sub * n / dim, billCur = cur * t + subCur, billProj = proj == null ? null : proj * t + S.sub, billPrev = prev * t + S.sub;
-    var delta = prev > 0 && billProj != null ? (billProj - billPrev) / billPrev * 100 : null;
-    var share = cur > 0 ? Math.min(100, clim / cur * 100) : 0, other = Math.max(0, cur - clim);
-    var keys = Object.keys(D).sort().slice(-30), max = 0;
-    keys.forEach(function (k) { if (D[k] > max) max = D[k]; });
-    var bars = keys.map(function (k) {
-      var h = max ? Math.max(4, D[k] / max * 100) : 4, cp = D[k] > 0 ? Math.min(100, climDay(k, c).kwh / D[k] * 100) : 0;
-      return '<i style="height:' + h.toFixed(1) + '%" title="' + esc(k) + ' · ' + fmt(D[k]) + ' kWh"><b style="height:' + cp.toFixed(1) + '%"></b></i>';
+    var lastK = days[n - 1], lastTxt = lastK ? +lastK.slice(8, 10) + " " + c.month : "";
+    var sentence;
+    if (billProj == null) sentence = "La projection du mois s’affiche après 3 jours mesurés.";
+    else if (prev > 0) {
+      var diff = billProj - billPrev;
+      sentence = "Au même rythme, " + c.month + " coûtera " + (Math.abs(diff) < 1 ? "autant que " + c.pmonth : eur(Math.abs(diff), 0) + (diff < 0 ? " de moins" : " de plus") + " qu’" + (c.pmonth.charAt(0) === "a" || c.pmonth.charAt(0) === "o" ? "en " : "en ") + c.pmonth) + " (" + eur(billPrev, 0) + ").";
+    } else sentence = "Au même rythme, " + c.month + " coûtera environ " + eur(billProj, 0) + ".";
+    // Graphique : un baton par jour du mois choisi (mois en cours par defaut), la part des clims en bleu.
+    var first = Object.keys(D).sort()[0] || mk + "-01";
+    var minOff = (+first.slice(0, 4) - y) * 12 + (+first.slice(5, 7) - 1 - mo);
+    S.cmo = Math.max(minOff, Math.min(0, S.cmo));
+    var cm = new Date(y, mo + S.cmo, 1), cmk = iso(cm).slice(0, 7), cdim = new Date(cm.getFullYear(), cm.getMonth() + 1, 0).getDate();
+    var cmName = MONTHS[cm.getMonth()], cmAbbr = cmName.length > 5 ? cmName.slice(0, cmName === "juillet" ? 5 : 4) + "." : cmName;
+    var cdays = Object.keys(D).filter(function (k) { return k.slice(0, 7) === cmk; }).sort();
+    var max = 0, mTot = 0, mClim = 0;
+    cdays.forEach(function (k) { if (D[k] > max) max = D[k]; mTot += D[k]; mClim += climDay(k, c).kwh; });
+    var top = Math.max(2, Math.ceil(max / 2) * 2), cols = "", selK = cdays[cdays.length - 1];
+    for (var d = 1; d <= cdim; d++) {
+      var k = cmk + "-" + ("0" + d).slice(-2), v = D[k];
+      if (v == null) { cols += '<span class="cb empty' + (k === iso(now) ? " today" : "") + '"></span>'; continue; }
+      var cp = v > 0 ? Math.min(1, climDay(k, c).kwh / v) : 0;
+      cols += '<button class="cb' + (k === selK ? " sel" : "") + '" data-day="' + k + '" aria-label="' + esc(dayTxt(k, D[k], climDay(k, c).kwh)) + '"><i style="height:' + (v / top * 100).toFixed(1) + '%"><b style="height:' + (cp * 100).toFixed(1) + '%"></b></i></button>';
+    }
+    var ticks = '<em class="l0">1 ' + cmAbbr + '</em>' + [8, 15, 22].map(function (x) { return '<em style="left:' + ((x - 0.5) / cdim * 100).toFixed(2) + '%">' + x + '</em>'; }).join("") + '<em class="lr">' + cdim + '</em>';
+    // Bloc climatisation : meme mois que le graphique.
+    var mc = 0, mm = 0, mmeas = 0;
+    cdays.forEach(function (k) { var cd = climDay(k, c); mc += cd.kwh; mm += c.days[k] || 0; if (cd.measured) mmeas++; });
+    rooms = S.units.map(function (u) {
+      var v = 0; (S.energy[u.id] || []).forEach(function (e) { if (cdays.indexOf(e.d) >= 0) v += e.kwh; });
+      return { u: u, kwh: mmeas && mm > 0 ? v * mc / mm : v };
+    });
+
+    var monthNav = '<div class="mnav"><button class="ib" data-cm="-1" aria-label="Mois précédent"' + (S.cmo <= minOff ? " disabled" : "") + '>' + svg('<path d="m15 6-6 6 6 6"/>', 1.8) + '</button>' +
+      '<span><b>' + cap1(cmName) + ' ' + cm.getFullYear() + '</b><small>' + (cdays.length ? fmt(mTot) + " kWh · " + eur(mTot * t) + " d’électricité" + (S.cmo === 0 ? " à ce jour" : "") : "aucune mesure") + '</small></span>' +
+      '<button class="ib" data-cm="1" aria-label="Mois suivant"' + (S.cmo >= 0 ? " disabled" : "") + '>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</button></div>';
+    var roomRows = rooms.map(function (r) {
+      return '<div class="rr"><span>' + esc(r.u.name) + '</span><span>' + fmt(r.kwh) + ' kWh</span><b>' + eur(r.kwh * t) + '</b></div>';
     }).join("");
-    var dl = delta == null ? "" : '<span class="dl ' + (delta > 0 ? "up" : "dn") + '">' + (delta > 0 ? "+" : "−") + Math.abs(Math.round(delta)) + ' % vs ' + c.pmonth + '</span>';
-    var lastK = keys[keys.length - 1];
+    var share = mTot > 0 ? mc / mTot * 100 : 0;
     return '<div class="cons lk">' +
-      '<div class="ch"><div><div class="cm">Facture · ' + c.month + ' à ce jour</div><div class="eur">' + eur(billCur) + '</div></div>' +
-      '<div class="pj"><div class="cm">Projection fin de mois</div><div class="pv">' + (billProj == null ? "dès 3 jours" : eur(billProj, 0)) + '</div>' + dl + '</div></div>' +
-      '<p class="bk">Électricité ' + eur(cur * t) + ' · abonnement ' + eur(subCur) + '</p>' +
-      '<div class="mix"><div><span class="sw cl"></span>Climatisation<b>' + eurS(clim * t) + '</b><small>' + fmt(clim) + ' kWh · ' + (share > 0 && share < 1 ? "moins de 1" : Math.round(share)) + ' %</small></div>' +
-      '<div><span class="sw ot"></span>Autres usages<b>' + eurS(other * t) + '</b><small>' + fmt(other) + ' kWh · ' + Math.round(100 - share) + ' %</small></div></div>' +
-      '<div class="bars stack" aria-label="Consommation de la maison, 30 derniers jours">' + bars + '</div>' +
-      splitsHTML(c) +
-      '<p class="n">Maison : ' + fmt(cur) + ' kWh mesurés par le compteur Linky' + (lastK ? ', jusqu’au ' + lastK.slice(8, 10) + '/' + lastK.slice(5, 7) : "") + ' (Enedis publie les données le lendemain). ' +
-      cap1(c.pmonth) + ' : ' + eur(billPrev, 0) + ' abonnement compris. Prix de votre contrat : ' + String(t).replace(".", ",") + ' €/kWh, abonnement ' + String(S.sub).replace(".", ",") + ' €/mois TTC. Part de la climatisation : ' + (meas === n && n ? "déduite de la courbe Linky, demi-heure par demi-heure." : meas ? "déduite de la courbe Linky sur " + meas + " jour" + (meas > 1 ? "s" : "") + ", estimation Mitsubishi sur les autres." : "estimation Mitsubishi. Elle sera déduite de la courbe Linky dès que le pilotage automatique relèvera l’état des clims.") + '</p>' +
+      '<div class="ch"><div><div class="cm">' + cap1(c.month) + ' à ce jour</div><div class="eur">' + eur(billCur) + '</div></div>' +
+      '<div class="pj"><div class="cm">Fin de mois</div><div class="pv">' + (billProj == null ? "–" : "≈ " + eur(billProj, 0)) + '</div></div></div>' +
+      '<p class="sent">' + sentence + '</p>' +
+      '<p class="bk">Électricité ' + eur(cur * t) + ' + abonnement ' + eur(subCur) + (lastTxt ? ', jusqu’au ' + lastTxt : "") + '.</p>' +
+      '<div class="cht"><div class="chh"><span>Consommation jour par jour</span><span class="lg"><i class="lc"></i>Clims<i class="lo"></i>Reste de la maison</span></div>' +
+        monthNav +
+        '<p class="det" id="cdet">' + (selK ? esc(dayTxt(selK, D[selK], climDay(selK, c).kwh)) : "Touchez un jour pour le détail.") + '</p>' +
+        '<div class="mchart"><span class="ymax">' + top + ' kWh</span><div class="cols" style="grid-template-columns:repeat(' + cdim + ',1fr)">' + cols + '</div></div>' +
+        '<div class="xl">' + ticks + '</div></div>' +
+      '<div class="climb"><div class="clh"><span>Climatisation · ' + cmName + (S.cmo === 0 ? " à ce jour" : "") + '</span><b>' + eur(mc * t) + '</b></div>' +
+        '<p class="cls">' + (share < 1 && clim > 0 ? "Moins de 1 %" : Math.round(share) + " %") + ' de l’électricité de la maison sur la même période.</p>' + roomRows + '</div>' +
+      '<details class="how"><summary>Comment c’est calculé</summary><p>La maison est mesurée par votre compteur Linky ; Enedis publie chaque journée le lendemain matin. ' +
+        'Le coût applique votre contrat : ' + String(t).replace(".", ",") + ' € par kWh et ' + String(S.sub).replace(".", ",") + ' € d’abonnement par mois, compté au prorata des jours mesurés. ' +
+        'La part des clims est ' + (meas ? "déduite de la courbe Linky, demi-heure par demi-heure, sur " + meas + " jour" + (meas > 1 ? "s" : "") + (meas < n ? ", et estimée par Mitsubishi sur les autres" : "") : "l’estimation de Mitsubishi ; elle sera déduite de la courbe Linky dès que le pilotage automatique relèvera l’état des clims") + '. ' +
+        'La projection prolonge le rythme moyen des jours mesurés.</p></details>' +
       '</div>';
   }
+  function dayTxt(k, kwh, clim) {
+    var d = new Date(k + "T12:00:00");
+    var s = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+    return s.charAt(0).toUpperCase() + s.slice(1) + " : " + fmt(kwh) + " kWh, " + eurS(kwh * S.tariff) + (clim > 0.05 ? ", dont clims " + fmt(clim) + " kWh" : ", clims à l’arrêt");
+  }
+
 
   // ---------- Vue piece ----------
   function roomHTML(u) {
@@ -600,6 +646,12 @@
     if (b.hasAttribute("data-settings")) { openSettings(); return; }
     if (b.hasAttribute("data-back")) { S.view = "home"; put("view", "home"); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-go")) { S.view = b.getAttribute("data-go"); put("view", S.view); buzz(); draw(); return; }
+    if (b.hasAttribute("data-cm")) { S.cmo += +b.getAttribute("data-cm"); buzz(); draw(); return; }
+    if (b.hasAttribute("data-day")) {
+      var dk = b.getAttribute("data-day"), det = document.getElementById("cdet");
+      Array.prototype.forEach.call(document.querySelectorAll(".cb.sel"), function (x) { x.classList.remove("sel"); });
+      b.classList.add("sel"); if (det) det.textContent = b.getAttribute("aria-label"); buzz(); return;
+    }
     if (b.hasAttribute("data-alloff")) { allOff(); return; }
     if (b.hasAttribute("data-linky")) { openLinky(); return; }
     if (b.hasAttribute("data-qpower")) {
@@ -739,7 +791,7 @@
     }).catch(onErr);
   }
   function loadLinky() {
-    api("daily", { days: 62 }, FN_LINKY).then(function (d) {
+    api("daily", { days: 400 }, FN_LINKY).then(function (d) {
       if (!d.linked) { S.linky = { linked: false }; }
       else {
         var m = {}; (d.values || []).forEach(function (v) { m[String(v.day).slice(0, 10)] = (Number(v.wh) || 0) / 1000; });
@@ -751,7 +803,7 @@
   function loadEnergy() {
     setTimeout(loadLinky, DEMO ? 300 : 1200);
     S.units.forEach(function (u) {
-      api("energy", { unit_id: u.id, days: 62 }).then(function (d) {
+      api("energy", { unit_id: u.id, days: 400 }).then(function (d) {
         S.energy[u.id] = (d.values || []).map(function (v) { return { d: String(v.time).slice(0, 10), kwh: (Number(v.value) || 0) / 1000 }; });
         if (Date.now() >= S.busyUntil) draw();
       }).catch(function () {});

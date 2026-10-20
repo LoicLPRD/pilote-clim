@@ -144,6 +144,11 @@
   .lg { font-weight: 400; font-size: .74rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .lg i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
   .lg i.lo { background: var(--muted); margin-left: 8px; } .lg i.lc { background: var(--blue); }
+  .mnav { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; margin-top: 10px; }
+  .mnav span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .mnav b { font-weight: 500; font-size: .95rem; }
+  .mnav small { font-size: .74rem; color: var(--muted); }
+  .mnav .ib:disabled { opacity: .25; }
   .det { margin: 10px 0 8px; font-size: .8rem; color: var(--fg); min-height: 1.3em; }
   .mchart { position: relative; height: 120px; border-bottom: 1px solid var(--line); }
   .ymax { position: absolute; top: -2px; right: 0; font-size: .64rem; color: var(--dim); }
@@ -156,7 +161,9 @@
   .cb.empty { height: 3px; align-self: end; background: var(--panel-2); border-radius: 2px; }
   .cb.empty.today { background: repeating-linear-gradient(90deg, var(--muted) 0 2px, transparent 2px 4px); }
   .xl { position: relative; height: 16px; margin-top: 4px; }
-  .xl em { position: absolute; transform: translateX(-50%); font-style: normal; font-size: .66rem; color: var(--dim); }
+  .xl em { position: absolute; transform: translateX(-50%); font-style: normal; font-size: .66rem; color: var(--dim); white-space: nowrap; }
+  .xl em.l0 { left: 0; transform: none; }
+  .xl em.lr { right: 0; transform: none; }
   .climb { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
   .clh { display: flex; justify-content: space-between; align-items: baseline; font-weight: 500; font-size: .95rem; }
   .clh b { font-weight: 400; font-size: 1.3rem; color: var(--blue); }
@@ -324,8 +331,8 @@
 <body>
 <div id="app"></div>
 <div class="toast" id="toast"></div>
-<script src="prog.js?v=15"></script>
-<script src="split.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="prog.js?v=16"></script>
+<script src="split.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
