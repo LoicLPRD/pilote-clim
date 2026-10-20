@@ -92,8 +92,8 @@
       var d = self.drag; if (!d || e.pointerId !== d.id) return;
       var dx = e.clientX - d.x, dy = e.clientY - d.y;
       if (!d.axis && Math.abs(dx) + Math.abs(dy) > 9) { d.axis = Math.abs(dy) >= Math.abs(dx) ? "v" : "h"; d.moved = true; clearTimeout(d.lt); }
-      if (d.axis === "v") { self.tp = clamp(d.p + dy * 0.24, 8, 72); preview("v"); }
-      if (d.axis === "h") { self.ty = clamp(d.yw + dx * 0.2, -40, 40); preview("h"); }
+      if (d.axis === "v") { self.tp = clamp(d.p + dy * 64 / Math.max(120, self.h * 0.6), 8, 72); preview("v"); }
+      if (d.axis === "h") { self.ty = clamp(d.yw + dx * 40 / Math.max(100, self.w * 0.34), -40, 40); preview("h"); }
       kick();
     });
     function preview(ax) {
@@ -145,76 +145,75 @@
     var dir = [Math.sin(yr) * Math.cos(pr), Math.sin(pr), Math.cos(yr) * Math.cos(pr)];
     var D = this.o.mini ? 360 : 720;
 
-    // Halo diffus dans la direction du souffle
-    if (this.flow > 0.02) {
-      var reach = (this.o.mini ? 60 : 150) * (0.7 + fan * 0.12);
-      var Z = dir[2] * reach, s = D / (D - Z);
-      var hx = g.cx + dir[0] * reach * s, hy = ey + dir[1] * reach * s, hr = g.uw * (this.o.mini ? 0.55 : 0.62);
-      var gr = x.createRadialGradient(hx, hy, 0, hx, hy, hr);
-      var a0 = (dark ? 0.2 : 0.12) * this.flow;
-      gr.addColorStop(0, "rgba(" + col + "," + a0 + ")"); gr.addColorStop(1, "rgba(" + col + ",0)");
-      x.fillStyle = gr; x.fillRect(0, 0, g.w, g.h);
-    }
-
-    // Particules
-    if (reduce) this.rays(g, ey, dir, D, col, dark, fan);
-    else this.particles(dt, g, ey, dir, D, col, dark, fan);
-
+    if (this.flow > 0.02) this.flows(g, ey, dir, D, col, dark, fan);
     this.unit(g, flapH, col, dark);
+    if (this.o.interactive && this.flow > 0.3 && this.end) this.handle(col, dark);
   };
 
-  View.prototype.particles = function (dt, g, ey, dir, D, col, dark, fan) {
-    var x = this.x, mini = this.o.mini, st = this.st;
-    var rate = (mini ? 70 : 240) * (0.45 + fan * 0.22) * this.flow;
-    var speed = (mini ? 58 : 118) * (0.62 + fan * 0.16);
-    if (st.power) {
-      this.acc += rate * dt;
-      while (this.acc >= 1) {
-        this.acc -= 1;
-        var jp = (Math.random() - 0.5) * 0.16, jy = (Math.random() - 0.5) * 0.2;
-        var pr = this.pitch * Math.PI / 180 + jp, yr = this.yaw * Math.PI / 180 + jy, sp = speed * (0.75 + Math.random() * 0.5);
-        this.parts.push({
-          X: (Math.random() - 0.5) * g.sw * 0.92, Y: 0, Z: 0,
-          vx: Math.sin(yr) * Math.cos(pr) * sp, vy: Math.sin(pr) * sp, vz: Math.cos(yr) * Math.cos(pr) * sp,
-          l: 0, m: (mini ? 1.3 : 1.9) + Math.random() * 0.9, w: 0.6 + Math.random() * 0.8
-        });
+  // Lignes de flux facon Tesla : traits nets en eventail, impulsions qui avancent avec la ventilation.
+  View.prototype.flows = function (g, ey, dir, D, col, dark, fan) {
+    var x = this.x, mini = this.o.mini, n = mini ? 5 : 9, fl = this.flow;
+    var lift = { heat: -1, cool: 1, dry: 0.4, fan: 0 }[this.st.effect] || 0;
+    var pulse = (mini ? 22 : 44) + fan * (mini ? 8 : 18), seg = mini ? 8 : 20, gap = mini ? 14 : 34;
+    // Point vise : la hauteur suit le volet vertical, la position laterale suit le volet horizontal.
+    var pv = (this.pitch - 8) / 64, ph = this.yaw / 40;
+    var bottom = g.h * (mini ? 0.96 : 0.8);
+    var hx = g.cx + ph * g.w * (mini ? 0.3 : 0.34), hy = ey + (mini ? 10 : 34) + pv * (bottom - ey - (mini ? 10 : 34));
+    this.end = [hx, hy];
+    var spread = g.sw * (mini ? 0.16 : 0.12), paths = [];
+    for (var i = 0; i < n; i++) {
+      var u = i / (n - 1) - 0.5, x0 = g.cx + u * g.sw * 0.9, pts = [];
+      var tx = hx + u * spread, ty = hy + lift * (mini ? 3 : 10) * (1 - Math.abs(u));
+      var c1x = x0 + (tx - x0) * 0.15, c1y = ey + (ty - ey) * 0.55;
+      var ex = tx + (tx - x0) * 0.45 + u * spread, ey2 = ty + (ty - ey) * 0.35 + lift * (mini ? 8 : 26);
+      for (var j = 0; j <= 14; j++) {
+        var t = j / 14, mt = 1 - t;
+        pts.push([mt * mt * x0 + 2 * mt * t * c1x + t * t * tx, mt * mt * ey + 2 * mt * t * c1y + t * t * ty]);
+      }
+      for (var k = 1; k <= 6; k++) { var r = k / 6; pts.push([tx + (ex - tx) * r, ty + (ey2 - ty) * r]); }
+      paths.push(pts);
+    }
+    var hr = g.uw * (mini ? 0.5 : 0.45), gr = x.createRadialGradient(hx, hy, 0, hx, hy, hr);
+    gr.addColorStop(0, "rgba(" + col + "," + ((dark ? 0.18 : 0.1) * fl) + ")"); gr.addColorStop(1, "rgba(" + col + ",0)");
+    x.fillStyle = gr; x.beginPath(); x.arc(hx, hy, hr, 0, 7); x.fill();
+
+    x.lineCap = "round"; x.lineJoin = "round";
+    x.globalCompositeOperation = dark ? "lighter" : "source-over";
+    for (var p = 0; p < paths.length; p++) {
+      var pts = paths[p], a = pts[0], z = pts[pts.length - 1], edge = 1 - Math.abs(p / (n - 1) - 0.5) * 0.8;
+      var lg = x.createLinearGradient(a[0], a[1], z[0], z[1]);
+      lg.addColorStop(0, "rgba(" + col + "," + (0.18 * fl * edge).toFixed(3) + ")");
+      lg.addColorStop(0.7, "rgba(" + col + "," + (0.5 * fl * edge).toFixed(3) + ")");
+      lg.addColorStop(1, "rgba(" + col + ",0)");
+      x.strokeStyle = lg; x.lineWidth = mini ? 1 : 1.5; x.setLineDash([]); line(x, pts);
+      if (!reduce) {
+        var pg = x.createLinearGradient(a[0], a[1], z[0], z[1]);
+        pg.addColorStop(0, "rgba(" + col + "," + (0.5 * fl * edge).toFixed(3) + ")");
+        pg.addColorStop(0.72, "rgba(" + (dark ? "255,255,255" : col) + "," + (0.95 * fl * edge).toFixed(3) + ")");
+        pg.addColorStop(1, "rgba(" + col + ",0)");
+        x.strokeStyle = pg; x.lineWidth = mini ? 1.5 : 2.4;
+        x.setLineDash([seg, gap]); x.lineDashOffset = -(this.t * pulse + p * 9); line(x, pts);
       }
     }
-    var lift = LIFT[st.effect] || 0, drag = Math.max(0, 1 - 0.5 * dt), keep = [];
-    x.globalCompositeOperation = dark ? "lighter" : "source-over";
-    x.lineCap = "round";
-    for (var i = 0; i < this.parts.length; i++) {
-      var p = this.parts[i];
-      p.l += dt; if (p.l >= p.m) continue;
-      p.vx *= drag; p.vy = p.vy * drag + lift * dt; p.vz *= drag;
-      p.vx += (Math.random() - 0.5) * 14 * dt; p.vy += (Math.random() - 0.5) * 14 * dt;
-      p.X += p.vx * dt; p.Y += p.vy * dt; p.Z += p.vz * dt;
-      if (p.Z > D * 0.82) continue;
-      keep.push(p);
-      var tr = mini ? 0.22 : 0.3, s1 = D / (D - p.Z), Zb = p.Z - p.vz * tr, s0 = D / (D - Zb);
-      var x1 = g.cx + p.X * s1, y1 = ey + p.Y * s1;
-      var x0 = g.cx + (p.X - p.vx * tr) * s0, y0 = ey + (p.Y - p.vy * tr) * s0;
-      var life = p.l / p.m, a = Math.sin(Math.PI * Math.min(1, life * 1.15)) * (dark ? 0.3 : 0.26) * (0.55 + 0.45 * this.flow);
-      x.strokeStyle = "rgba(" + col + "," + a.toFixed(3) + ")";
-      x.lineWidth = (mini ? 1 : 1.5) * s1 * p.w * (0.7 + fan * 0.07);
-      x.beginPath(); x.moveTo(x0, y0); x.lineTo(x1, y1); x.stroke();
-    }
-    this.parts = keep;
+    x.setLineDash([]);
     x.globalCompositeOperation = "source-over";
   };
-
-  // Mouvement reduit : rayons fixes, aucune animation continue.
-  View.prototype.rays = function (g, ey, dir, D, col, dark) {
-    if (this.flow < 0.05) return;
-    var x = this.x, n = 7, len = this.o.mini ? 70 : 170;
-    for (var i = 0; i < n; i++) {
-      var X0 = (i / (n - 1) - 0.5) * g.sw * 0.8, Z = dir[2] * len, s = D / (D - Z);
-      var gx = g.cx + (X0 + dir[0] * len) * s, gy = ey + dir[1] * len * s;
-      var lg = x.createLinearGradient(g.cx + X0, ey, gx, gy);
-      lg.addColorStop(0, "rgba(" + col + ",0.5)"); lg.addColorStop(1, "rgba(" + col + ",0)");
-      x.strokeStyle = lg; x.lineWidth = this.o.mini ? 2 : 4; x.lineCap = "round";
-      x.beginPath(); x.moveTo(g.cx + X0, ey); x.lineTo(gx, gy); x.stroke();
+  function line(x, pts) {
+    x.beginPath(); x.moveTo(pts[0][0], pts[0][1]);
+    for (var k = 1; k < pts.length - 1; k++) {
+      var mx = (pts[k][0] + pts[k + 1][0]) / 2, my = (pts[k][1] + pts[k + 1][1]) / 2;
+      x.quadraticCurveTo(pts[k][0], pts[k][1], mx, my);
     }
+    var l = pts[pts.length - 1]; x.lineTo(l[0], l[1]); x.stroke();
+  }
+
+  // Poignee a saisir, comme sur l'ecran de climatisation d'une Tesla
+  View.prototype.handle = function (col, dark) {
+    var x = this.x, e = this.end, r = this.drag ? 17 : 13, a = Math.min(1, (this.flow - 0.3) / 0.5);
+    x.beginPath(); x.arc(e[0], e[1], r, 0, 7);
+    x.fillStyle = "rgba(" + col + "," + (0.22 * a) + ")"; x.fill();
+    x.lineWidth = 2; x.strokeStyle = "rgba(" + col + "," + (0.95 * a) + ")"; x.stroke();
+    x.beginPath(); x.arc(e[0], e[1], 3.5, 0, 7); x.fillStyle = dark ? "rgba(255,255,255," + a + ")" : "rgba(" + col + "," + a + ")"; x.fill();
   };
 
   function rr(x, X, Y, W, H, r1, r2) {
@@ -229,13 +228,14 @@
     var x = this.x, X = g.cx - g.uw / 2, Y = g.top, W = g.uw, H = g.uh;
     // Corps
     x.save();
-    x.shadowColor = dark ? "rgba(0,0,0,.55)" : "rgba(30,40,60,.18)";
+    x.shadowColor = dark ? "rgba(0,0,0,.55)" : "rgba(23,26,32,.16)";
     x.shadowBlur = this.o.mini ? 10 : 28; x.shadowOffsetY = this.o.mini ? 4 : 12;
     rr(x, X, Y, W, H, H * 0.16, H * 0.34);
     var bg = x.createLinearGradient(0, Y, 0, Y + H);
     bg.addColorStop(0, "#fbfbfc"); bg.addColorStop(0.55, "#e6e8eb"); bg.addColorStop(1, "#c9cdd3");
     x.fillStyle = bg; x.fill();
     x.restore();
+    if (!dark) { rr(x, X, Y, W, H, H * 0.16, H * 0.34); x.strokeStyle = "rgba(23,26,32,.09)"; x.lineWidth = 1; x.stroke(); }
     // Reflet superieur et jonction de facade
     x.strokeStyle = "rgba(255,255,255,.9)"; x.lineWidth = 1;
     x.beginPath(); x.moveTo(X + H * 0.2, Y + 1.2); x.lineTo(X + W - H * 0.2, Y + 1.2); x.stroke();

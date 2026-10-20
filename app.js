@@ -18,8 +18,19 @@
   var FANS = ["One", "Two", "Three", "Four", "Five"];
   var VV_FR = { Auto: "Automatique", One: "Haut", Two: "Mi-haut", Three: "Milieu", Four: "Mi-bas", Five: "Bas", Swing: "Balayage" };
   var VH_FR = { Auto: "Automatique", Left: "Gauche", LeftCentre: "Gauche-centre", Centre: "Centre", RightCentre: "Droite-centre", Right: "Droite", Swing: "Balayage" };
-  var VV_ORDER = ["Auto", "One", "Two", "Three", "Four", "Five", "Swing"];
-  var VH_ORDER = ["Auto", "Left", "LeftCentre", "Centre", "RightCentre", "Right", "Swing"];
+  function arw(ox, oy, deg, len) {
+    var r = deg * Math.PI / 180, x = ox + Math.cos(r) * len, y = oy + Math.sin(r) * len, h1 = r + Math.PI - 0.5, h2 = r + Math.PI + 0.5;
+    return "M" + ox + " " + oy + "L" + x.toFixed(1) + " " + y.toFixed(1) +
+      "M" + x.toFixed(1) + " " + y.toFixed(1) + "l" + (Math.cos(h1) * 4).toFixed(1) + " " + (Math.sin(h1) * 4).toFixed(1) +
+      "M" + x.toFixed(1) + " " + y.toFixed(1) + "l" + (Math.cos(h2) * 4).toFixed(1) + " " + (Math.sin(h2) * 4).toFixed(1);
+  }
+  var UV = '<path d="M3 4h7" stroke-width="2.4"/>', UH = '<path d="M7 4h10" stroke-width="2.4"/>', AI = '<path d="M7 18 12 6l5 12M8.8 14h6.4"/>';
+  var VV = [["Auto", "Automatique", AI], ["One", "Haut", UV + '<path d="' + arw(5, 7, 8, 15) + '"/>'], ["Two", "Mi-haut", UV + '<path d="' + arw(5, 7, 26, 15) + '"/>'],
+    ["Three", "Milieu", UV + '<path d="' + arw(5, 7, 45, 15) + '"/>'], ["Four", "Mi-bas", UV + '<path d="' + arw(5, 7, 64, 15) + '"/>'], ["Five", "Bas", UV + '<path d="' + arw(5, 7, 82, 15) + '"/>'],
+    ["Swing", "Balayage", UV + '<path d="M8 8a12 12 0 0 1 10 12M8 8l.4 3.6M8 8l3.4 1.2M18 20l-3.4-.8M18 20l.8-3.4"/>']];
+  var VH = [["Auto", "Automatique", AI], ["Left", "Gauche", UH + '<path d="' + arw(12, 7, 145, 13) + '"/>'], ["LeftCentre", "Gauche-centre", UH + '<path d="' + arw(12, 7, 118, 14) + '"/>'],
+    ["Centre", "Centre", UH + '<path d="' + arw(12, 7, 90, 14) + '"/>'], ["RightCentre", "Droite-centre", UH + '<path d="' + arw(12, 7, 62, 14) + '"/>'], ["Right", "Droite", UH + '<path d="' + arw(12, 7, 35, 13) + '"/>'],
+    ["Swing", "Balayage", UH + '<path d="M5 15h14M5 15l3-3M5 15l3 3M19 15l-3-3M19 15l-3 3"/>']];
   var TYPES = [["vie", "Pièce de vie", 21], ["chambre", "Chambre", 19], ["bureau", "Bureau", 20]];
 
   var HOUSE = [
@@ -41,7 +52,7 @@
     fails: +(get("fails") || 0), lockUntil: +(get("lockUntil") || 0),
     units: [], view: get("view") || "home", energy: {}, busyUntil: 0,
     rooms: getJ("rooms", {}), season: get("season") || "auto", house: getJ("house", null),
-    adv: get("adv") === "1", hinted: get("hinted") === "1"
+    hinted: get("hinted") === "1"
   };
   if (DEMO) { S.rooms = getJ("demo_rooms", {}); S.house = getJ("demo_house", null); }
   function saveRooms() { put(DEMO ? "demo_rooms" : "rooms", JSON.stringify(S.rooms)); }
@@ -238,39 +249,37 @@
   var GEAR = '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>';
   function renderApp() {
     app.innerHTML =
-      '<div class="gut"><div class="top"><span class="word">Pilote Clim</span>' +
-      (DEMO ? '<span class="pill">Démonstration</span>' : "") +
-      '<button class="gear" id="gear" aria-label="Réglages">' + svg(GEAR) + '</button></div></div>' +
-      '<main class="gut" id="main"><div class="loading">Chargement</div></main>' +
-      '<nav class="dock"><div class="in gut" id="dock"></div></nav>';
-    document.getElementById("gear").addEventListener("click", openSettings);
-    var main = document.getElementById("main");
-    main.addEventListener("click", onMainClick);
-    document.getElementById("dock").addEventListener("click", onDockClick);
+      '<header class="gut"><div class="top" id="top"></div></header>' +
+      '<main class="gut" id="main"><div class="loading">Chargement</div></main>';
+    document.getElementById("main").addEventListener("click", onMainClick);
+    document.getElementById("top").addEventListener("click", onMainClick);
     draw();
     api("list", {}).then(function (d) { if (d.units) { S.units = d.units; draw(); loadEnergy(); } }).catch(onErr);
     startAuto();
   }
   function onErr(e) { if (e.needLogin) renderLogin("Session expirée. Reconnectez-vous."); else toast("Connexion au serveur interrompue"); }
 
+  var BACK = '<path d="m15 5-7 7 7 7"/>', SLIDERS = '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>';
+  function drawTop(u) {
+    var t = document.getElementById("top"); if (!t) return;
+    if (!u) {
+      t.innerHTML = '<span></span><span class="word">Pilote Clim</span><button class="ib" data-settings aria-label="Réglages">' + svg(GEAR, 1.5) + '</button>';
+      return;
+    }
+    var rsw = S.units.map(function (x) {
+      return '<button class="rp' + (x.power ? " on" : "") + '" data-go="' + esc(x.id) + '" aria-current="' + (x.id === u.id) + '" style="--pc:' + EFFECT_C[effect(x)] + '"><i></i>' + esc(x.name) + '</button>';
+    }).join("");
+    t.innerHTML = '<button class="ib" data-back aria-label="Retour">' + svg(BACK, 1.8) + '</button>' +
+      '<nav class="rsw" aria-label="Pièces">' + rsw + '</nav>' +
+      '<button class="ib" data-roomset aria-label="Réglages de la pièce">' + svg(SLIDERS, 1.6) + '</button>';
+  }
   function draw() {
-    drawDock();
     var main = document.getElementById("main"); if (!main) return;
     if (!S.units.length) { main.innerHTML = '<div class="loading">Chargement</div>'; return; }
     var u = S.view !== "home" ? unitById(S.view) : null;
-    if (!u) { S.view = "home"; main.innerHTML = homeHTML(); document.documentElement.style.setProperty("--acc", "var(--auto)"); }
-    else main.innerHTML = roomHTML(u);
+    if (!u) { S.view = "home"; drawTop(null); main.innerHTML = homeHTML(); document.documentElement.style.setProperty("--acc", "var(--blue)"); }
+    else { drawTop(u); main.innerHTML = roomHTML(u); }
     mount(main);
-  }
-
-  function drawDock() {
-    var d = document.getElementById("dock"); if (!d) return;
-    var html = '<button class="tab" data-v="home" aria-current="' + (S.view === "home") + '"><span class="ic">' + svg('<path d="M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z"/>') + '</span>Maison</button>';
-    S.units.forEach(function (u) {
-      html += '<button class="tab' + (u.power ? " on" : "") + '" data-v="' + esc(u.id) + '" aria-current="' + (S.view === u.id) + '" style="--tabc:' + EFFECT_C[effect(u)] + '">' +
-        '<span class="ic"><span class="t">' + esc((u.name || "?").trim().charAt(0).toUpperCase()) + '</span></span>' + esc(u.name) + '</button>';
-    });
-    d.innerHTML = html;
   }
 
   // ---------- Consommation ----------
@@ -302,27 +311,29 @@
     var cur = S.house && S.house.k, hd = HOUSE.filter(function (h) { return h.k === cur; })[0];
 
     var seg = HOUSE.map(function (h) {
-      return '<button class="hm" data-house="' + h.k + '" aria-pressed="' + (h.k === cur) + '">' + svg(h.i, 1.7) + '<span>' + h.n + '</span></button>';
-    }).join("");
-    var cap = hd ? hd.d + ' <span class="when">Appliqué à ' + hm(S.house.at) + '</span>' : "Un geste règle toute la maison.";
+      return '<button data-house="' + h.k + '" aria-pressed="' + (h.k === cur) + '"><span class="c">' + svg(h.i, 1.6) + '</span>' + h.n + '</button>';
+    }).join("") + '<button data-alloff aria-pressed="false"' + (on ? "" : " disabled") + '><span class="c">' + svg('<path d="M12 3v9M6.5 7a8 8 0 1 0 11 0"/>', 1.7) + '</span>Éteindre</button>';
+    var cap = hd ? hd.d + ' <span class="when">Appliqué à ' + hm(S.house.at) + '.</span>' : "Un geste règle toute la maison.";
 
     var cards = S.units.map(function (u) {
       var r = room(u), ef = effect(u);
-      var st = u.in_error ? "Erreur unité" : u.connected === false ? "Hors ligne" : u.power ? (ef === "heat" ? "Chauffe" : ef === "cool" ? "Rafraîchit" : ef === "dry" ? "Déshumidifie" : "Ventile") + " vers " + fmt(u.set_temperature) + "°" : "Arrêt";
-      return '<button class="card' + (u.power ? " on" : "") + '" data-open="' + esc(u.id) + '" style="--cc:' + EFFECT_C[ef] + '">' +
+      var st = u.in_error ? "Erreur unité" : u.connected === false ? "Hors ligne" : u.power ? (u.mode === "Automatic" ? "Auto · " : "") + (ef === "heat" ? "Chauffe" : ef === "cool" ? "Refroidit" : ef === "dry" ? "Déshum." : "Ventile") + " " + fmt(u.set_temperature) + "°" : "Arrêt";
+      return '<div class="card' + (u.power ? " on" : "") + '" data-open="' + esc(u.id) + '" role="button" tabindex="0" style="--cc:' + EFFECT_C[ef] + '">' +
         '<div data-cv="mini:' + esc(u.id) + '"></div>' +
-        '<span class="cbody"><span class="nm">' + esc(u.name) + '</span><span class="sm">' + esc(st) + '</span>' +
+        '<span class="cbody"><span class="nm">' + esc(u.name) + '</span><span class="sm">' + (u.power ? "<i></i>" : "") + esc(st) + '</span>' +
         '<span class="ty">Confort ' + fmt(r.comfort) + '°</span></span>' +
-        '<span class="t">' + fmt(u.room_temperature) + '<small>°</small></span></button>';
+        '<span class="t">' + fmt(u.room_temperature) + '<small>°</small></span>' +
+        '<button class="qp" data-qpower="' + esc(u.id) + '" aria-pressed="' + !!u.power + '" aria-label="' + (u.power ? "Éteindre " : "Allumer ") + esc(u.name) + '">' + svg('<path d="M12 3v9M6.5 7a8 8 0 1 0 11 0"/>', 2) + '</button></div>';
     }).join("");
 
     return '<section class="home-v">' +
-      '<div class="hero"><div class="avg">' + (avg != null ? fmt(avg) : "–") + '<sup>°</sup></div>' +
-      '<div class="sub">Moyenne intérieure · ' + on + ' sur ' + S.units.length + ' en marche</div></div>' +
-      '<div class="seg" role="group" aria-label="Mode de la maison">' + seg + '</div>' +
+      '<div class="hstat"><h1>Maison</h1><p>' + (on ? on + " sur " + S.units.length + " en marche" : "Tout est arrêté") + (DEMO ? " · démonstration" : "") + '</p></div>' +
+      '<div class="hero"><div class="avg">' + (avg != null ? fmt(avg) : "–") + '<sup>°</sup></div></div>' +
+      '<p class="segcap" style="margin-top:4px">Moyenne intérieure</p>' +
+      '<div class="qa" role="group" aria-label="Mode de la maison">' + seg + '</div>' +
       '<p class="segcap">' + cap + '</p>' +
-      '<div class="lbl">Pièces</div><div class="cards">' + cards + '</div>' +
-      '<div class="lbl">Consommation</div>' + consoHTML() +
+      '<div class="sh"><span>Pièces</span></div><div class="cards">' + cards + '</div>' +
+      '<div class="sh"><span>Consommation</span><small>Estimation</small></div>' + consoHTML() +
       '</section>';
   }
 
@@ -365,18 +376,24 @@
     var vv = getVane(u, "vv"), vh = getVane(u, "vh");
 
     var modes = MODES.map(function (m) {
-      return '<button class="mode" data-mode="' + m[0] + '" data-m="' + m[0] + '" aria-pressed="' + (u.mode === m[0]) + '">' + svg(m[2]) + m[1] + '</button>';
+      return '<button class="mode" data-mode="' + m[0] + '" data-m="' + m[0] + '" aria-pressed="' + (u.mode === m[0]) + '"><span class="c">' + svg(m[2]) + '</span>' + m[1] + '</button>';
     }).join("");
     var lvl = FANS.indexOf(u.fan_speed);
     var bars = FANS.map(function (f, i) {
-      return '<button data-fan="' + f + '" aria-label="Ventilation ' + (i + 1) + '"><span class="bar' + (lvl >= i ? " on" : "") + '" style="height:' + (36 + i * 16) + '%"></span></button>';
+      return '<button data-fan="' + f + '" aria-label="Ventilation ' + (i + 1) + '"><span class="bar' + (lvl >= i ? " on" : "") + '"></span></button>';
     }).join("");
-    function opts(order, fr, k, cur) {
-      return order.map(function (v) { return '<button data-' + k + '="' + v + '" aria-pressed="' + (v === cur) + '">' + fr[v] + '</button>'; }).join("");
+    function grid(list, k, cur) {
+      var name = "";
+      var b = list.map(function (v) {
+        var on = v[0] === cur; if (on) name = v[1];
+        return '<button data-' + k + '="' + v[0] + '" aria-label="' + v[1] + '" title="' + v[1] + '" aria-pressed="' + on + '">' + svg(v[2], 1.8) + '</button>';
+      }).join("");
+      return '<div class="vgrid">' + b + '</div><div class="vcap">' + name + '</div>';
     }
+    var modeCap = { Heat: "Chauffage vers la consigne.", Cool: "Rafraîchissement vers la consigne.", Automatic: "La clim choisit seule entre chaud et froid pour tenir la consigne.", Dry: "Assèche l’air, température peu modifiée.", Fan: "Brasse l’air, sans chauffer ni refroidir." }[u.mode] || "";
 
     return '<section class="room' + (u.power ? "" : " off") + '">' +
-      '<h2>' + esc(u.name) + '</h2><p class="status">' + status + '</p>' +
+      '<p class="status">' + status + '</p>' +
       '<div class="stage"><div data-cv="room:' + esc(u.id) + '"></div>' +
         '<div class="vp" id="vp">' + vaneCap(u.power, vv, vh) + '</div>' +
         (u.power && !S.hinted ? '<div class="hint" id="hint">Glissez le flux pour l’orienter · appui long : balayage</div>' : "") +
@@ -388,15 +405,12 @@
       '</div>' + chip +
       '<button class="pwr" data-power aria-pressed="' + !!u.power + '" aria-label="Marche / arrêt">' + svg('<path d="M12 3v9M6.5 7a8 8 0 1 0 11 0"/>', 1.8) + '</button>' +
       '<div class="pwrlbl">' + (u.power ? "En marche" : "Arrêt") + '</div>' +
+      '<div class="lbl">Mode</div><div class="modes">' + modes + '</div><div class="vcap">' + modeCap + '</div>' +
+      '<div class="lbl">Ventilation</div><div class="fans"><button class="fauto" data-fan="Auto" aria-pressed="' + (u.fan_speed === "Auto") + '">Auto</button><div class="fanlvl">' + bars + '</div></div>' +
+      '<div class="lbl">Orientation haut / bas</div>' + grid(VV, "vv", vv) +
+      '<div class="lbl">Orientation gauche / droite</div>' + grid(VH, "vh", vh) +
       '<div class="meta"><span>Confort <b>' + fmt(r.comfort) + '°</b></span><span>Ce mois <b>' + (kwh != null ? eur(kwh * S.tariff) : "…") + '</b></span>' +
         '<button class="lnk" data-roomset>Pièce</button></div>' +
-      '<button class="advt" data-adv aria-expanded="' + S.adv + '">Réglages avancés' + svg('<path d="m6 9 6 6 6-6"/>', 1.8) + '</button>' +
-      (S.adv ? '<div class="adv">' +
-        '<div class="lbl">Mode</div><div class="modes">' + modes + '</div>' +
-        '<div class="lbl">Ventilation</div><div class="fans"><button class="fauto" data-fan="Auto" aria-pressed="' + (u.fan_speed === "Auto") + '">AUTO</button><div class="fanlvl">' + bars + '</div></div>' +
-        '<div class="lbl">Volet vertical</div><div class="opts">' + opts(VV_ORDER, VV_FR, "vv", vv) + '</div>' +
-        '<div class="lbl">Volet horizontal</div><div class="opts">' + opts(VH_ORDER, VH_FR, "vh", vh) + '</div>' +
-      '</div>' : "") +
       '</section>';
   }
 
@@ -425,16 +439,19 @@
   function dismissHint() { if (!S.hinted) { S.hinted = true; put("hinted", "1"); var h = document.getElementById("hint"); if (h) h.remove(); } }
 
   // ---------- Interactions ----------
-  function onDockClick(e) {
-    var t = e.target.closest(".tab"); if (!t) return;
-    S.view = t.getAttribute("data-v"); put("view", S.view); buzz();
-    draw(); window.scrollTo(0, 0);
-  }
   function onMainClick(e) {
-    var b = e.target.closest("button"); if (!b) return;
+    var b = e.target.closest("button");
+    if (!b) { var cd = e.target.closest("[data-open]"); if (cd) { S.view = cd.getAttribute("data-open"); put("view", S.view); buzz(); draw(); window.scrollTo(0, 0); } return; }
     if (b.hasAttribute("data-open")) { S.view = b.getAttribute("data-open"); put("view", S.view); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-house")) { applyHouse(b.getAttribute("data-house")); return; }
-    if (b.hasAttribute("data-adv")) { S.adv = !S.adv; put("adv", S.adv ? "1" : "0"); draw(); return; }
+    if (b.hasAttribute("data-settings")) { openSettings(); return; }
+    if (b.hasAttribute("data-back")) { S.view = "home"; put("view", "home"); buzz(); draw(); window.scrollTo(0, 0); return; }
+    if (b.hasAttribute("data-go")) { S.view = b.getAttribute("data-go"); put("view", S.view); buzz(); draw(); return; }
+    if (b.hasAttribute("data-alloff")) { allOff(); return; }
+    if (b.hasAttribute("data-qpower")) {
+      var q = unitById(b.getAttribute("data-qpower")); if (!q) return;
+      buzz(); hold(); q.power = !q.power; draw(); send(q, { power: q.power }, q.name + (q.power ? " allumée" : " éteinte")); return;
+    }
     var u = unitById(S.view); if (!u) return;
     if (b.hasAttribute("data-roomset")) { openRoom(u); return; }
     buzz(); hold();
@@ -495,6 +512,17 @@
     (function next(i) {
       if (i >= plan.length) { toast(fails ? h.n + " · " + fails + " pièce(s) en échec" : h.n + " appliqué"); later(); return; }
       api("control", { unit_id: plan[i].u.id, changes: plan[i].c }).then(function () { next(i + 1); }).catch(function () { fails++; next(i + 1); });
+    })(0);
+  }
+
+  function allOff() {
+    buzz(); hold(8000);
+    var list = S.units.filter(function (u) { return u.power; }); if (!list.length) return;
+    list.forEach(function (u) { u.power = false; }); draw(); toast("Extinction…");
+    var fails = 0;
+    (function next(i) {
+      if (i >= list.length) { toast(fails ? fails + " pièce(s) en échec" : "Tout est éteint"); later(); return; }
+      api("control", { unit_id: list[i].id, changes: { power: false } }).then(function () { next(i + 1); }).catch(function () { fails++; next(i + 1); });
     })(0);
   }
 
