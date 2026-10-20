@@ -100,11 +100,12 @@
   .cons .bars i:nth-last-child(-n+7) { background: var(--fg); }
   .cons .bars i.part { opacity: .45; }
   .cons .splits { display: flex; flex-direction: column; gap: 10px; }
-  .cons .sp { display: grid; grid-template-columns: 84px 1fr 54px; align-items: center; gap: 12px; font-size: .84rem; }
+  .cons .sp { display: grid; grid-template-columns: 96px 1fr 70px; align-items: center; gap: 12px; font-size: .84rem; }
   .cons .sp span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
   .cons .tr { height: 3px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
   .cons .tr b { display: block; height: 100%; background: var(--blue); }
-  .cons .v { text-align: right; }
+  .cons .v { text-align: right; white-space: nowrap; }
+  .cons .v small { display: block; font-size: .7rem; color: var(--dim); }
   .cons .n { color: var(--dim); font-size: .74rem; margin: 18px 0 0; line-height: 1.55; }
 
   .cons .bk { margin: 10px 0 0; font-size: .8rem; color: var(--muted); }
@@ -128,6 +129,56 @@
   .steps .ghost { margin-top: 10px; }
   .lkok { color: var(--fg); font-size: .92rem; margin: 0 0 12px; }
   .sheet { max-height: 92vh; overflow-y: auto; }
+
+
+  /* Programmation */
+  .ttl { justify-self: center; font-weight: 500; font-size: 1rem; }
+  .pline { margin: 6px 0 0; color: var(--muted); font-size: .8rem; }
+  .prow { margin-top: 26px; }
+  .progv { padding-top: 8px; }
+  .pcard { display: block; width: 100%; text-align: left; background: var(--panel); border-radius: 12px; padding: 16px; margin-top: 12px; }
+  .prow2 { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .prow2 > span { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .prow2 b { font-weight: 500; font-size: .95rem; }
+  .prow2 small { color: var(--muted); font-size: .8rem; line-height: 1.45; }
+  .prow2 > svg { width: 18px; height: 18px; flex: none; color: var(--muted); }
+  .sw { flex: none; width: 50px; height: 30px; border-radius: 999px; background: var(--panel-2); position: relative; transition: background .2s; }
+  .sw i { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2s; }
+  .sw.on { background: var(--blue); } .sw.on i { transform: translateX(20px); }
+  .leg { display: flex; gap: 16px; font-size: .76rem; color: var(--muted); margin: -2px 0 4px; }
+  .leg i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .tls { margin-top: 14px; display: flex; flex-direction: column; gap: 5px; }
+  .tlr { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 8px; font-size: .7rem; color: var(--dim); }
+  .tlr.today { color: var(--fg); font-weight: 500; }
+  .tlr.big { grid-template-columns: 1fr; margin: 6px 0 12px; }
+  .tlr.big .tl { height: 14px; }
+  .tl { position: relative; height: 10px; border-radius: 3px; background: var(--panel-2); overflow: hidden; display: block; }
+  .tl i { position: absolute; top: 0; bottom: 0; }
+  .tlx { display: grid; grid-template-columns: 30px 1fr; gap: 8px; }
+  .ax { display: flex; justify-content: space-between; font-size: .62rem; color: var(--dim); }
+  .ax em { font-style: normal; }
+  .note2 { color: var(--dim); font-size: .76rem; line-height: 1.55; margin: 16px 0 0; }
+  .elog { list-style: none; padding: 0; margin: 0; font-size: .8rem; color: var(--muted); }
+  .elog li { padding: 10px 0; border-bottom: 1px solid var(--line); line-height: 1.4; }
+  .elog time { display: block; font-size: .7rem; color: var(--dim); margin-bottom: 2px; }
+  .opts2 .lkrow { margin: 0 0 8px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .pick.days { flex-wrap: nowrap; gap: 4px; }
+  .pick.days button { flex: 1; padding: 10px 0; text-align: center; }
+  .step2 { display: grid; grid-template-columns: 92px 1fr 32px; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .tsel { display: flex; align-items: center; gap: 2px; background: var(--panel); border-radius: 4px; height: 40px; padding: 0 6px; }
+  .tsel select { font: inherit; font-size: .95rem; color: var(--fg); background: transparent; border: 0; -webkit-appearance: none; appearance: none; padding: 0 2px; text-align: center; }
+  .tsel select:disabled { opacity: .5; }
+  .tsel b { font-weight: 400; color: var(--muted); }
+  .fld.half .tsel { background: var(--panel); }
+  .step2 input { font: inherit; font-size: .95rem; color: var(--fg); background: var(--panel); border: 0; border-radius: 4px; height: 40px; padding: 0 8px; width: 100%; }
+  .step2 input:disabled { opacity: .5; }
+  .seg3 { display: flex; background: var(--panel); border-radius: 4px; padding: 2px; }
+  .seg3 button { flex: 1; font-size: .76rem; padding: 9px 0; border-radius: 3px; color: var(--muted); }
+  .seg3 button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 500; }
+  .rmv { width: 32px; height: 32px; display: grid; place-items: center; color: var(--muted); }
+  .rmv svg { width: 16px; height: 16px; }
+  #pd { margin-bottom: 4px; }
 
   /* Ecran piece */
   .rsw { justify-self: center; display: flex; background: var(--panel); border-radius: 999px; padding: 3px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
@@ -233,7 +284,8 @@
 <body>
 <div id="app"></div>
 <div class="toast" id="toast"></div>
-<script src="split.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="prog.js?v=12"></script>
+<script src="split.js?v=12"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

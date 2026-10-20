@@ -2,6 +2,7 @@
   "use strict";
   var FN = "https://lwftspnyvoqejetemyhu.supabase.co/functions/v1/melcloud";
   var FN_LINKY = "https://lwftspnyvoqejetemyhu.supabase.co/functions/v1/linky";
+  var FN_ENGINE = "https://lwftspnyvoqejetemyhu.supabase.co/functions/v1/engine";
   var KEY = "sb_publishable_6yruO30gDX8L3LfXWXWB2Q_54fg6Wme";
   var MAX_FAILS = 3, LOCK_MS = 10000;
   var DEMO = /[?&]demo\b/.test(location.search);
@@ -54,10 +55,54 @@
     fails: +(get("fails") || 0), lockUntil: +(get("lockUntil") || 0),
     units: [], view: get("view") || "home", energy: {}, busyUntil: 0,
     rooms: getJ("rooms", {}), season: get("season") || "auto", house: getJ("house", null),
-    hinted: get("hinted") === "1", linky: null
+    hinted: get("hinted") === "1", linky: null,
+    doc: getJ(DEMO ? "demo_doc" : "doc", {}), server: null, elog: [], clim: [], view2: null
   };
   if (DEMO) { S.rooms = getJ("demo_rooms", {}); S.house = getJ("demo_house", null); }
   function saveRooms() { put(DEMO ? "demo_rooms" : "rooms", JSON.stringify(S.rooms)); }
+  // Reglages partages (serveur) : le document du serveur fait foi, une copie locale sert hors ligne.
+  function adoptDoc(d) {
+    if (!d) return;
+    S.doc = d; put(DEMO ? "demo_doc" : "doc", JSON.stringify(d));
+    if (d.rooms) { S.rooms = d.rooms; saveRooms(); }
+    if (d.tariff) { S.tariff = d.tariff; put("tariff", String(d.tariff)); }
+    if (d.sub != null) { S.sub = d.sub; put("sub", String(d.sub)); }
+    if (d.season) { S.season = d.season; put("season", d.season); }
+    if (d.house) { S.house = d.house; put(DEMO ? "demo_house" : "house", JSON.stringify(d.house)); }
+  }
+  function mergeLocal(doc, p) {
+    var d = JSON.parse(JSON.stringify(doc || {}));
+    ["tariff", "sub", "season"].forEach(function (k) { if (p[k] != null) d[k] = p[k]; });
+    if (p.rooms) { d.rooms = d.rooms || {}; for (var id in p.rooms) d.rooms[id] = p.rooms[id]; }
+    if (p.house) d.house = { k: p.house.k, at: Date.now(), until: p.house.until || null };
+    if (p.program) {
+      d.program = d.program || {};
+      if (typeof p.program.enabled === "boolean") d.program.enabled = p.program.enabled;
+      if (p.program.rhythm) d.program.rhythm = p.program.rhythm;
+      if (p.program.custom) { d.program.custom = d.program.custom || {}; for (var u in p.program.custom) { if (p.program.custom[u]) d.program.custom[u] = p.program.custom[u]; else delete d.program.custom[u]; } }
+    }
+    return d;
+  }
+  function saveDoc(patch, okMsg) {
+    adoptDoc(mergeLocal(S.doc, patch)); draw();
+    return api("save", { patch: patch }, FN_ENGINE).then(function (d) { if (d.doc) adoptDoc(d.doc); if (okMsg) toast(okMsg); draw(); })
+      .catch(function (e) { if (e.needLogin) return onErr(e); toast("Enregistré sur ce téléphone seulement"); });
+  }
+  function loadEngine() {
+    return api("state", {}, FN_ENGINE).then(function (d) {
+      var local = S.doc || {};
+      // Premiere synchronisation : on envoie au serveur les reglages deja faits sur ce telephone.
+      if (d.doc && !d.doc.rooms && local.rooms === undefined && Object.keys(S.rooms || {}).length) {
+        api("save", { patch: { rooms: S.rooms } }, FN_ENGINE).then(function (r) { if (r.doc) { adoptDoc(r.doc); draw(); } }).catch(function () {});
+      }
+      adoptDoc(d.doc || {}); S.server = d.server || null; S.elog = d.log || []; S.clim = d.clim || [];
+      if (Date.now() >= S.busyUntil && !document.querySelector(".veil")) draw();
+    }).catch(function (e) { if (e.needLogin) onErr(e); });
+  }
+  function nowP() { var d = new Date(); return { dow: (d.getDay() + 6) % 7 + 1, min: d.getHours() * 60 + d.getMinutes(), ms: d.getTime() }; }
+  function docNow() {
+    return { rooms: S.rooms, season: S.season, program: (S.doc && S.doc.program) || {}, house: S.house || { k: "maison" } };
+  }
 
   function saveTokens(t) {
     if (!t) return;
@@ -71,7 +116,7 @@
   }
 
   // ---------- Serveur ----------
-  function api(action, extra, fn) {
+  function api(action, extra, fn, raw) {
     if (DEMO) return demoApi(action, extra || {}, fn);
     var body = Object.assign({ action: action }, extra || {});
     var isLogin = !!(extra && extra.password);
@@ -86,7 +131,7 @@
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, d: d || {} }; });
     }).then(function (res) {
-      if (res.d.token) saveTokens(res.d.token);
+      if (res.d.token && !raw) saveTokens(res.d.token);
       if (!isLogin && (res.status === 401 || res.d.needLogin)) { var e = new Error("session"); e.needLogin = true; throw e; }
       if (res.d.error && !res.d.ok) throw new Error(res.d.error);
       return res.d;
@@ -103,6 +148,15 @@
   function demoApi(action, x, fn) {
     return new Promise(function (ok) {
       setTimeout(function () {
+        if (fn === FN_ENGINE) {
+          var dd = getJ("demo_doc", {});
+          if (action === "save") { dd = mergeLocal(dd, x.patch || {}); put("demo_doc", JSON.stringify(dd)); return ok({ ok: true, doc: dd }); }
+          if (action === "state") return ok({ doc: dd, server: { linked: get("demo_srv") === "1", status: get("demo_srv") === "1" ? "actif" : null, last_tick: new Date(Date.now() - 140e3).toISOString() }, log: [{ ts: new Date(Date.now() - 3600e3).toISOString(), unit_id: "d1", text: "Programme : chauffage 21°." }], clim: [] });
+          if (action === "link") { put("demo_srv", "1"); return ok({ ok: true }); }
+          if (action === "unlink") { put("demo_srv", "0"); return ok({ ok: true }); }
+          return ok({ ok: true });
+        }
+        if (action === "login") return ok({ ok: true, units: [], token: { access_token: "demo", refresh_token: "demo", expires_in: 3600 } });
         if (fn === FN_LINKY) {
           if (action !== "daily") return ok({ linked: true, prm: "•••• 4821" });
           var vals = [], now = new Date();
@@ -148,6 +202,7 @@
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function svg(p, sw) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 1.6) + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + "</svg>"; }
   function fmt(v) { if (v == null || isNaN(v)) return "–"; return (Math.round(v * 10) / 10).toString().replace(".", ","); }
+  function eurS(v) { return eur(v, Math.abs(v) < 10 ? 2 : 0); }
   function eur(v, d) { if (v == null || isNaN(v)) return "–"; return v.toFixed(d == null ? 2 : d).replace(".", ",") + " €"; }
   function iso(d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
   function hm(t) { var d = new Date(t); return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2); }
@@ -270,7 +325,7 @@
     document.getElementById("main").addEventListener("click", onMainClick);
     document.getElementById("top").addEventListener("click", onMainClick);
     draw();
-    api("list", {}).then(function (d) { if (d.units) { S.units = d.units; draw(); loadEnergy(); } }).catch(onErr);
+    api("list", {}).then(function (d) { if (d.units) { S.units = d.units; draw(); loadEngine(); loadEnergy(); } }).catch(onErr);
     startAuto();
   }
   function onErr(e) { if (e.needLogin) renderLogin("Session expirée. Reconnectez-vous."); else toast("Connexion au serveur interrompue"); }
@@ -292,6 +347,7 @@
   function draw() {
     var main = document.getElementById("main"); if (!main) return;
     if (!S.units.length) { main.innerHTML = '<div class="loading">Chargement</div>'; return; }
+    if (S.view === "prog") { drawTopTitle("Programmation"); main.innerHTML = progHTML(); document.documentElement.style.setProperty("--acc", "var(--blue)"); return; }
     var u = S.view !== "home" ? unitById(S.view) : null;
     if (!u) { S.view = "home"; drawTop(null); main.innerHTML = homeHTML(); document.documentElement.style.setProperty("--acc", "var(--blue)"); }
     else { drawTop(u); main.innerHTML = roomHTML(u); }
@@ -329,7 +385,7 @@
     var seg = HOUSE.map(function (h) {
       return '<button data-house="' + h.k + '" aria-pressed="' + (h.k === cur) + '"><span class="c">' + svg(h.i, 1.6) + '</span>' + h.n + '</button>';
     }).join("") + '<button data-alloff aria-pressed="false"' + (on ? "" : " disabled") + '><span class="c">' + svg('<path d="M12 3v9M6.5 7a8 8 0 1 0 11 0"/>', 1.7) + '</span>Éteindre</button>';
-    var cap = hd ? hd.d + ' <span class="when">Appliqué à ' + hm(S.house.at) + '.</span>' : "Un geste règle toute la maison.";
+    var cap = hd ? hd.d + ' <span class="when">' + (S.house.until ? "Jusqu’au " + new Date(S.house.until).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }) + " à " + hm(S.house.until) : "Depuis " + hm(S.house.at)) + '.</span>' : "Un geste règle toute la maison.";
 
     var cards = S.units.map(function (u) {
       var r = room(u), ef = effect(u);
@@ -347,7 +403,7 @@
       '<div class="hero"><div class="avg">' + (avg != null ? fmt(avg) : "–") + '<sup>°</sup></div></div>' +
       '<p class="segcap" style="margin-top:4px">Moyenne intérieure</p>' +
       '<div class="qa" role="group" aria-label="Mode de la maison">' + seg + '</div>' +
-      '<p class="segcap">' + cap + '</p>' +
+      '<p class="segcap">' + cap + '</p>' + progRow() +
       '<div class="sh"><span>Pièces</span></div><div class="cards">' + cards + '</div>' +
       '<div class="sh"><span>Consommation</span><small>' + (S.linky && S.linky.days ? "Linky mesuré" : "Estimation") + '</small></div>' + consoHTML() +
       '</section>';
@@ -380,18 +436,27 @@
   function splitsHTML(c) {
     return '<div class="splits">' + S.units.map(function (u) {
       var v = c.per[u.id] || 0, p = c.cur > 0 ? v / c.cur * 100 : 0;
-      return '<div class="sp"><span>' + esc(u.name) + '</span><span class="tr"><b style="width:' + p.toFixed(1) + '%"></b></span><span class="v">' + eur(v * S.tariff, 0) + '</span></div>';
+      return '<div class="sp"><span>' + esc(u.name) + '</span><span class="tr"><b style="width:' + p.toFixed(1) + '%"></b></span><span class="v">' + eurS(v * S.tariff) + '<small>' + fmt(v) + ' kWh</small></span></div>';
     }).join("") + '</div>';
   }
 
-  // Consommation reelle (Linky) : maison mesuree, part de la climatisation estimee sur les memes jours.
+  // Part des clims pour un jour : deduite de la courbe Linky quand le moteur a releve l'etat des clims
+  // sur la quasi-totalite de la journee, sinon estimation Mitsubishi.
+  function climDay(k, c) {
+    for (var i = 0; i < (S.clim || []).length; i++) {
+      var r = S.clim[i];
+      if (String(r.day).slice(0, 10) === k && +r.slots > 0 && +r.covered / +r.slots >= 0.8) return { kwh: +r.clim_kwh, measured: true };
+    }
+    return { kwh: c.days[k] || 0, measured: false };
+  }
+  // Consommation reelle (Linky) : maison mesuree, part de la climatisation sur les memes jours.
   function linkyHTML(c, D) {
     var t = S.tariff, now = new Date(), mk = iso(now).slice(0, 7);
     var pk = iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)).slice(0, 7);
     var dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    var cur = 0, prev = 0, n = 0, clim = 0;
+    var cur = 0, prev = 0, n = 0, clim = 0, meas = 0;
     Object.keys(D).forEach(function (k) {
-      if (k.slice(0, 7) === mk) { cur += D[k]; n++; clim += c.days[k] || 0; }
+      if (k.slice(0, 7) === mk) { var cd = climDay(k, c); cur += D[k]; n++; clim += cd.kwh; if (cd.measured) meas++; }
       else if (k.slice(0, 7) === pk) prev += D[k];
     });
     var proj = n ? cur / n * dim : 0;
@@ -402,7 +467,7 @@
     var keys = Object.keys(D).sort().slice(-30), max = 0;
     keys.forEach(function (k) { if (D[k] > max) max = D[k]; });
     var bars = keys.map(function (k) {
-      var h = max ? Math.max(4, D[k] / max * 100) : 4, cp = D[k] > 0 ? Math.min(100, (c.days[k] || 0) / D[k] * 100) : 0;
+      var h = max ? Math.max(4, D[k] / max * 100) : 4, cp = D[k] > 0 ? Math.min(100, climDay(k, c).kwh / D[k] * 100) : 0;
       return '<i style="height:' + h.toFixed(1) + '%" title="' + esc(k) + ' · ' + fmt(D[k]) + ' kWh"><b style="height:' + cp.toFixed(1) + '%"></b></i>';
     }).join("");
     var dl = delta == null ? "" : '<span class="dl ' + (delta > 0 ? "up" : "dn") + '">' + (delta > 0 ? "+" : "−") + Math.abs(Math.round(delta)) + ' % vs ' + c.pmonth + '</span>';
@@ -411,12 +476,12 @@
       '<div class="ch"><div><div class="cm">Facture · ' + c.month + ' à ce jour</div><div class="eur">' + eur(billCur) + '</div></div>' +
       '<div class="pj"><div class="cm">Projection fin de mois</div><div class="pv">' + eur(billProj, 0) + '</div>' + dl + '</div></div>' +
       '<p class="bk">Électricité ' + eur(cur * t) + ' · abonnement ' + eur(subCur) + '</p>' +
-      '<div class="mix"><div><span class="sw cl"></span>Climatisation<b>' + eur(clim * t, 0) + '</b><small>' + Math.round(share) + ' %</small></div>' +
-      '<div><span class="sw ot"></span>Autres usages<b>' + eur(other * t, 0) + '</b><small>' + Math.round(100 - share) + ' %</small></div></div>' +
+      '<div class="mix"><div><span class="sw cl"></span>Climatisation<b>' + eurS(clim * t) + '</b><small>' + fmt(clim) + ' kWh · ' + (share > 0 && share < 1 ? "moins de 1" : Math.round(share)) + ' %</small></div>' +
+      '<div><span class="sw ot"></span>Autres usages<b>' + eurS(other * t) + '</b><small>' + fmt(other) + ' kWh · ' + Math.round(100 - share) + ' %</small></div></div>' +
       '<div class="bars stack" aria-label="Consommation de la maison, 30 derniers jours">' + bars + '</div>' +
       splitsHTML(c) +
       '<p class="n">Maison : ' + fmt(cur) + ' kWh mesurés par le compteur Linky' + (lastK ? ', jusqu’au ' + lastK.slice(8, 10) + '/' + lastK.slice(5, 7) : "") + ' (Enedis publie les données le lendemain). ' +
-      cap1(c.pmonth) + ' : ' + eur(billPrev, 0) + ' abonnement compris. Prix de votre contrat : ' + String(t).replace(".", ",") + ' €/kWh, abonnement ' + String(S.sub).replace(".", ",") + ' €/mois TTC. Part de la climatisation : estimation Mitsubishi rapportée à la mesure.</p>' +
+      cap1(c.pmonth) + ' : ' + eur(billPrev, 0) + ' abonnement compris. Prix de votre contrat : ' + String(t).replace(".", ",") + ' €/kWh, abonnement ' + String(S.sub).replace(".", ",") + ' €/mois TTC. Part de la climatisation : ' + (meas === n && n ? "déduite de la courbe Linky, demi-heure par demi-heure." : meas ? "déduite de la courbe Linky sur " + meas + " jour" + (meas > 1 ? "s" : "") + ", estimation Mitsubishi sur les autres." : "estimation Mitsubishi. Elle sera déduite de la courbe Linky dès que le pilotage automatique relèvera l’état des clims.") + '</p>' +
       '</div>';
   }
 
@@ -451,7 +516,7 @@
     var modeCap = { Heat: "Chauffage vers la consigne.", Cool: "Rafraîchissement vers la consigne.", Automatic: "La clim choisit seule entre chaud et froid pour tenir la consigne.", Dry: "Assèche l’air, température peu modifiée.", Fan: "Brasse l’air, sans chauffer ni refroidir." }[u.mode] || "";
 
     return '<section class="room' + (u.power ? "" : " off") + '">' +
-      '<p class="status">' + status + '</p>' +
+      '<p class="status">' + status + '</p>' + progLine(u) +
       '<div class="stage"><div data-cv="room:' + esc(u.id) + '"></div>' +
         '<div class="vp" id="vp">' + vaneCap(u.power, vv, vh) + '</div>' +
         (u.power && !S.hinted ? '<div class="ghint" id="hint">Glissez le flux pour l’orienter · appui long : balayage</div>' : "") +
@@ -501,7 +566,9 @@
     var b = e.target.closest("button");
     if (!b) { var cd = e.target.closest("[data-open]"); if (cd) { S.view = cd.getAttribute("data-open"); put("view", S.view); buzz(); draw(); window.scrollTo(0, 0); } return; }
     if (b.hasAttribute("data-open")) { S.view = b.getAttribute("data-open"); put("view", S.view); buzz(); draw(); window.scrollTo(0, 0); return; }
-    if (b.hasAttribute("data-house")) { applyHouse(b.getAttribute("data-house")); return; }
+    if (b.hasAttribute("data-house")) { pickHouse(b.getAttribute("data-house")); return; }
+    if (S.view === "prog" && onProgClick(b)) return;
+    if (b.hasAttribute("data-prog")) { S.view = "prog"; put("view", "prog"); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-settings")) { openSettings(); return; }
     if (b.hasAttribute("data-back")) { S.view = "home"; put("view", "home"); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-go")) { S.view = b.getAttribute("data-go"); put("view", S.view); buzz(); draw(); return; }
@@ -543,24 +610,65 @@
   }
 
   // ---------- Mode de la maison (applique en une fois a toutes les pieces) ----------
-  function houseChanges(k, u) {
-    var r = room(u), cool = season() === "cool", c = r.comfort;
-    if (!cool) {
-      if (k === "maison") return { power: true, operationMode: "Heat", setTemperature: c };
-      if (k === "nuit") return { power: true, operationMode: "Heat", setTemperature: r.type === "chambre" ? c : Math.max(16, c - 2) };
-      if (k === "absent") return { power: true, operationMode: "Heat", setTemperature: Math.max(16, c - 3) };
-      return { power: true, operationMode: "Heat", setTemperature: 10 };
-    }
-    var t = Math.max(24, c + 3);
-    if (k === "maison") return { power: true, operationMode: "Cool", setTemperature: t };
-    if (k === "nuit") return r.type === "chambre" ? { power: true, operationMode: "Cool", setTemperature: t } : { power: false };
-    return { power: false };
+  function houseChanges(k, u, until) {
+    var d = docNow(); d.house = { k: k, until: until || null };
+    var t = Prog.target(d, u, nowP(), new Date().getMonth()) || Prog.setting("confort", room(u).comfort, season());
+    return t.power ? { power: true, operationMode: t.mode, setTemperature: t.set } : { power: false };
   }
-  function applyHouse(k) {
+  // Choix du mode : demande l'heure de retour quand elle a un sens, puis applique.
+  function pickHouse(k) {
+    if (k === "maison") return applyHouse("maison", null);
+    if (k === "nuit") {
+      var r = Prog.rhythm(S.doc && S.doc.program && S.doc.program.rhythm), d = new Date(), n = new Date(d);
+      n.setDate(d.getDate() + (d.getHours() >= 12 ? 1 : 0));
+      var we = n.getDay() === 0 || n.getDay() === 6, w = Prog.m(we ? r.wake_we : r.wake_wd);
+      n.setHours(Math.floor(w / 60), w % 60, 0, 0);
+      if (n.getTime() <= Date.now()) n.setDate(n.getDate() + 1);
+      return applyHouse("nuit", n.getTime());
+    }
+    var rh = Prog.rhythm(S.doc && S.doc.program && S.doc.program.rhythm);
+    function at(dayOffset, hhmm) { var x = new Date(); x.setDate(x.getDate() + dayOffset); var mm = Prog.m(hhmm); x.setHours(Math.floor(mm / 60), mm % 60, 0, 0); return x; }
+    function fmtD(x) { return x.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }) + " à " + Prog.hhmm(x.getHours() * 60 + x.getMinutes()); }
+    if (k === "absent") {
+      var back = at(0, rh.back); if (back.getTime() <= Date.now() + 15 * 60e3) back = at(1, rh.back);
+      var tomorrow = at(back.getDate() === new Date().getDate() ? 1 : 2, rh.back);
+      sheet('<h3>Absent</h3><p class="hint" style="margin-top:0">' + (season() === "cool" ? "Clims arrêtées pendant votre absence." : "Chauffage abaissé de 3° partout.") + ' La maison reprend son programme à votre retour.</p>' +
+        '<div class="opts2">' +
+          '<button class="lkrow" data-u="' + back.getTime() + '"><span><b>Retour ' + (back.getDate() === new Date().getDate() ? "ce soir" : "demain") + '</b><small>' + fmtD(back) + '</small></span></button>' +
+          '<button class="lkrow" data-u="' + tomorrow.getTime() + '"><span><b>Retour le lendemain</b><small>' + fmtD(tomorrow) + '</small></span></button>' +
+          '<button class="lkrow" data-u=""><span><b>Sans date de retour</b><small>Choisissez Maison en rentrant</small></span></button>' +
+        '</div>' +
+        '<label class="fld" style="margin-top:14px"><span>Ou retour le</span><input id="dt" type="datetime-local"></label>' +
+        '<button class="cta" id="okdt">Valider cette date</button>', function (v) {
+        v.querySelector(".opts2").addEventListener("click", function (e) {
+          var b = e.target.closest("button"); if (!b) return; v.remove();
+          applyHouse("absent", b.getAttribute("data-u") ? +b.getAttribute("data-u") : null);
+        });
+        v.querySelector("#okdt").addEventListener("click", function () {
+          var x = new Date(v.querySelector("#dt").value); if (isNaN(x) || x.getTime() <= Date.now()) { toast("Choisissez une date à venir"); return; }
+          v.remove(); applyHouse("absent", x.getTime());
+        });
+      });
+      return;
+    }
+    if (k === "vacances") {
+      var def = at(7, "08:00");
+      sheet('<h3>Vacances</h3><p class="hint" style="margin-top:0">Hors-gel en hiver, arrêt complet en été. La maison est remise en température le matin de votre retour.</p>' +
+        '<label class="fld"><span>Date de retour</span><input id="dd" type="date" value="' + iso(def) + '" min="' + iso(new Date()) + '"></label>' +
+        '<button class="cta" id="okv">Partir en vacances</button>', function (v) {
+        v.querySelector("#okv").addEventListener("click", function () {
+          var val = v.querySelector("#dd").value; if (!val) return;
+          var x = new Date(val + "T06:00:00"); if (x.getTime() <= Date.now()) { toast("Choisissez une date à venir"); return; }
+          v.remove(); applyHouse("vacances", x.getTime());
+        });
+      });
+    }
+  }
+  function applyHouse(k, until) {
     var h = HOUSE.filter(function (x) { return x.k === k; })[0]; if (!h) return;
     buzz(); hold(8000);
-    S.house = { k: k, at: Date.now() }; put(DEMO ? "demo_house" : "house", JSON.stringify(S.house));
-    var plan = S.units.map(function (u) { return { u: u, c: houseChanges(k, u) }; });
+    saveDoc({ house: { k: k, until: until || null } });
+    var plan = S.units.map(function (u) { return { u: u, c: houseChanges(k, u, until) }; });
     plan.forEach(function (p) {
       if ("power" in p.c) p.u.power = p.c.power;
       if (p.c.operationMode) p.u.mode = p.c.operationMode;
@@ -614,8 +722,13 @@
   }
 
   var autoT;
-  function startAuto() { stopAuto(); autoT = setInterval(function () { if (!document.hidden) refresh(); }, 12000); document.addEventListener("visibilitychange", onVis); }
-  function stopAuto() { clearInterval(autoT); document.removeEventListener("visibilitychange", onVis); }
+  var engT;
+  function startAuto() {
+    stopAuto(); autoT = setInterval(function () { if (!document.hidden) refresh(); }, 12000);
+    engT = setInterval(function () { if (!document.hidden && !document.querySelector(".veil")) loadEngine(); }, 60000);
+    document.addEventListener("visibilitychange", onVis);
+  }
+  function stopAuto() { clearInterval(autoT); clearInterval(engT); document.removeEventListener("visibilitychange", onVis); }
   function onVis() { if (!document.hidden) refresh(); }
 
   // ---------- Feuilles ----------
@@ -645,7 +758,8 @@
       v.querySelector("#sv").addEventListener("click", function () {
         var x = parseFloat(String(v.querySelector("#tf").value).replace(",", ".")); if (x > 0) { S.tariff = x; put("tariff", String(x)); }
         var y = parseFloat(String(v.querySelector("#sb").value).replace(",", ".")); if (y >= 0) { S.sub = y; put("sub", String(y)); }
-        S.season = pick; put("season", pick); v.remove(); draw(); toast("Enregistré");
+        S.season = pick; put("season", pick); v.remove(); draw();
+        saveDoc({ tariff: S.tariff, sub: S.sub, season: pick }, "Enregistré");
       });
       var l = v.querySelector("#lo"); if (l) l.addEventListener("click", function () { v.remove(); logout(); });
     });
@@ -719,7 +833,257 @@
         c = Math.min(26, Math.max(16, c + (+b.getAttribute("data-d")) * 0.5)); v.querySelector("#cv").textContent = fmt(c) + "°";
       });
       v.querySelector("#sv").addEventListener("click", function () {
-        S.rooms[u.id] = { type: t, comfort: c }; saveRooms(); v.remove(); draw(); toast("Pièce enregistrée");
+        S.rooms[u.id] = { type: t, comfort: c }; saveRooms(); v.remove();
+        var pr = {}; pr[u.id] = { type: t, comfort: c }; saveDoc({ rooms: pr }, "Pièce enregistrée");
+      });
+    });
+  }
+
+  // ================= PROGRAMMATION =================
+  var DOW = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+  var ST_C = { confort: "var(--acc)", eco: "color-mix(in srgb, var(--acc) 38%, var(--panel-2))", off: "var(--panel-2)" };
+  function prog() { return (S.doc && S.doc.program) || {}; }
+  function srvOn() { return !!(S.server && S.server.linked); }
+  function ago(ts) {
+    if (!ts) return "jamais";
+    var m = Math.round((Date.now() - new Date(ts).getTime()) / 60e3);
+    return m < 1 ? "à l’instant" : m < 60 ? "il y a " + m + " min" : "à " + hm(ts);
+  }
+  function drawTopTitle(title) {
+    var t = document.getElementById("top"); if (!t) return;
+    t.innerHTML = '<button class="ib" data-back aria-label="Retour">' + svg(BACK, 1.8) + '</button><span class="ttl">' + esc(title) + '</span><span></span>';
+  }
+  function stLabel(t, u) {
+    if (!t.power) return "arrêt";
+    return (t.mode === "Cool" ? "froid " : "") + fmt(t.set) + "°";
+  }
+  // Prochaine etape la plus proche toutes pieces confondues (pour l'accueil).
+  function nextStep() {
+    var best = null, now = nowP();
+    S.units.forEach(function (u) {
+      var st = Prog.stateAt(Prog.daysOf(docNow(), u), now.dow, now.min);
+      if (!st.next) return;
+      var dist = st.next.inDays * 1440 + Prog.m(st.next.t) - now.min;
+      if (!best || dist < best.dist) best = { dist: dist, u: u, n: st.next };
+    });
+    return best;
+  }
+  function progRow() {
+    var p = prog(), sub;
+    if (!srvOn()) sub = "Désactivée · le téléphone pilote seulement à la demande";
+    else if (S.house && S.house.k !== "maison" && (!S.house.until || S.house.until > Date.now())) {
+      var hh = HOUSE.filter(function (x) { return x.k === S.house.k; })[0];
+      sub = (hh ? hh.n : "Mode") + " en cours" + (S.house.until ? " · reprise le " + new Date(S.house.until).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }) + " à " + hm(S.house.until) : "");
+    }
+    else if (!p.enabled) sub = "Pilotage automatique actif, programmes en pause";
+    else {
+      var n = nextStep();
+      sub = n ? "Prochaine étape " + (n.n.inDays ? DOW[((nowP().dow - 1 + n.n.inDays) % 7)].toLowerCase() + ". " : "") + n.n.t + " · " + n.u.name + " en " + Prog.STATES[n.n.s].toLowerCase() : "Programmes actifs";
+    }
+    return '<button class="lkrow prow" data-prog><span><b>Programmation</b><small>' + esc(sub) + '</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</button>';
+  }
+  // Ligne d'etat du programme sur l'ecran d'une piece.
+  function progLine(u) {
+    var d = docNow(), now = nowP(), t = Prog.target(d, u, now, new Date().getMonth());
+    if (!t) return "";
+    var h = S.house || {}, txt;
+    if (t.why !== "Programme") txt = t.why + (h.until ? " jusqu’au " + new Date(h.until).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + " " + hm(h.until) : "") + " · " + stLabel(t, u);
+    else {
+      var st = Prog.stateAt(Prog.daysOf(d, u), now.dow, now.min), n = st.next;
+      var match = t.power ? (u.power && u.mode === t.mode && Number(u.set_temperature) === t.set) : !u.power;
+      txt = match ? "Programme · " + Prog.STATES[t.state].toLowerCase() + " " + stLabel(t, u) + (n ? " jusqu’à " + n.t : "")
+        : "Réglage manuel" + (n ? " · le programme reprend à " + n.t : "");
+    }
+    if (!srvOn()) txt += " · pilotage automatique inactif";
+    return '<p class="pline">' + esc(txt) + '</p>';
+  }
+  function bar(days, d) {
+    var l = days[d] || [], segs = "";
+    for (var i = 0; i < l.length; i++) {
+      var a = Prog.m(l[i].t), b = i + 1 < l.length ? Prog.m(l[i + 1].t) : 1440;
+      segs += '<i style="left:' + (a / 14.4).toFixed(2) + '%;width:' + ((b - a) / 14.4).toFixed(2) + '%;background:' + ST_C[l[i].s] + '"></i>';
+    }
+    return '<span class="tl">' + segs + '</span>';
+  }
+  function progHTML() {
+    var p = prog(), r = Prog.rhythm(p.rhythm), today = nowP().dow;
+    var srv = srvOn()
+      ? '<div class="pcard"><div class="prow2"><span><b>Pilotage automatique</b><small>' + esc(S.server.status === "actif" ? "Actif · dernier relevé " + ago(S.server.last_tick) : "Attention : " + (S.server.status || "état inconnu")) + '</small></span>' +
+        '<button class="sw on" data-srv aria-label="Désactiver le pilotage automatique"><i></i></button></div></div>'
+      : '<div class="pcard"><div class="prow2"><span><b>Pilotage automatique</b><small>Inactif. Le serveur applique les modes et les programmes toutes les 5 minutes, téléphone éteint.</small></span>' +
+        '<button class="sw" data-srv aria-label="Activer le pilotage automatique"><i></i></button></div></div>';
+    var en = '<div class="pcard"><div class="prow2"><span><b>Programmes</b><small>' + (p.enabled ? "Actifs : chaque pièce suit son programme." : "En pause : les clims ne changent que sur votre demande.") + '</small></span>' +
+      '<button class="sw' + (p.enabled ? " on" : "") + '" data-pen aria-label="Programmes"><i></i></button></div></div>';
+    var work = r.work.map(function (d) { return DOW[d - 1].toLowerCase(); }).join(", ");
+    var rem = r.remote.length ? " · télétravail " + r.remote.map(function (d) { return DOW[d - 1].toLowerCase(); }).join(", ") : "";
+    var rh = '<div class="pcard"><div class="prow2"><span><b>Mon rythme</b><small>Semaine : lever ' + r.wake_wd + ', coucher ' + r.sleep_wd + '. Week-end : lever ' + r.wake_we + ', coucher ' + r.sleep_we + '. Absents de ' + r.leave + ' à ' + r.back + ' (' + esc(work) + ')' + esc(rem) + '.</small></span>' +
+      '<button class="lnk" data-rhythm>Modifier</button></div></div>';
+    var rooms = S.units.map(function (u) {
+      var d = docNow(), days = Prog.daysOf(d, u), rm = room(u), custom = !!((p.custom || {})[u.id]);
+      var rows = "";
+      for (var k = 1; k <= 7; k++) rows += '<div class="tlr' + (k === today ? " today" : "") + '"><span>' + DOW[k - 1] + '</span>' + bar(days, k) + '</div>';
+      return '<button class="pcard proom" data-rprog="' + esc(u.id) + '"><div class="prow2"><span><b>' + esc(u.name) + '</b><small>' +
+        esc(TYPES.filter(function (t) { return t[0] === rm.type; })[0][1]) + ' · confort ' + fmt(rm.comfort) + '°' + (custom ? " · personnalisé" : " · selon mon rythme") + '</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</div>' +
+        '<div class="tls">' + rows + '<div class="tlx"><span></span><span class="ax"><em>0h</em><em>6h</em><em>12h</em><em>18h</em><em>24h</em></span></div></div></button>';
+    }).join("");
+    var legend = '<div class="leg"><span><i style="background:' + ST_C.confort + '"></i>Confort</span><span><i style="background:' + ST_C.eco + '"></i>Éco (−2°)</span><span><i style="background:' + ST_C.off + '"></i>Arrêt</span></div>';
+    var logs = (S.elog || []).slice(0, 12).map(function (l) {
+      var u = unitById(l.unit_id);
+      return '<li><time>' + new Date(l.ts).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + ' ' + hm(l.ts) + '</time>' + (u ? esc(u.name) + " · " : "") + esc(l.text) + '</li>';
+    }).join("");
+    return '<section class="progv">' + srv + en + rh +
+      '<div class="sh"><span>Programmes par pièce</span></div>' + legend + rooms +
+      '<p class="note2">En hiver, Confort chauffe à la température de la pièce et Éco l’abaisse de 2°. En été, Confort rafraîchit à 24° au moins et Éco arrête la clim. Les périodes de confort démarrent 30 minutes à l’avance. Un réglage fait à la main reste en place jusqu’à l’étape suivante.</p>' +
+      (logs ? '<div class="sh"><span>Journal du moteur</span></div><ul class="elog">' + logs + '</ul>' : "") +
+      '</section>';
+  }
+
+  function onProgClick(b) {
+    if (b.hasAttribute("data-pen")) {
+      if (!srvOn() && !prog().enabled) toast("Activez aussi le pilotage automatique pour que les programmes tournent téléphone éteint");
+      saveDoc({ program: { enabled: !prog().enabled } }, prog().enabled ? "Programmes en pause" : "Programmes actifs");
+      return true;
+    }
+    if (b.hasAttribute("data-srv")) { if (srvOn()) unlinkServer(); else openServer(); return true; }
+    if (b.hasAttribute("data-rhythm")) { openRhythm(); return true; }
+    if (b.hasAttribute("data-rprog")) { openRoomProg(unitById(b.getAttribute("data-rprog"))); return true; }
+    return false;
+  }
+
+  // Selecteur d'heure independant de la langue du telephone (toujours sur 24 heures, pas de 5 minutes).
+  function timeSel(val, attrs, disabled) {
+    var m0 = Prog.m(val), h = Math.floor(m0 / 60), mi = m0 % 60 - (m0 % 60) % 5, o = "", i;
+    for (i = 0; i < 24; i++) o += '<option value="' + i + '"' + (i === h ? " selected" : "") + '>' + ("0" + i).slice(-2) + '</option>';
+    var o2 = "";
+    for (i = 0; i < 60; i += 5) o2 += '<option value="' + i + '"' + (i === mi ? " selected" : "") + '>' + ("0" + i).slice(-2) + '</option>';
+    var dis = disabled ? " disabled" : "";
+    return '<span class="tsel" ' + (attrs || "") + '><select data-h aria-label="Heure"' + dis + '>' + o + '</select><b>:</b><select data-mi aria-label="Minutes"' + dis + '>' + o2 + '</select></span>';
+  }
+  function timeVal(el) { return Prog.hhmm(+el.querySelector("[data-h]").value * 60 + +el.querySelector("[data-mi]").value); }
+  function chips(id, sel) {
+    return '<div class="pick days" id="' + id + '">' + DOW.map(function (d, i) { return '<button data-d="' + (i + 1) + '" aria-pressed="' + (sel.indexOf(i + 1) >= 0) + '">' + d + '</button>'; }).join("") + '</div>';
+  }
+  function chipVals(v, id) { return Array.prototype.filter.call(v.querySelectorAll("#" + id + " button"), function (b) { return b.getAttribute("aria-pressed") === "true"; }).map(function (b) { return +b.getAttribute("data-d"); }); }
+  function openRhythm() {
+    var r = Prog.rhythm(prog().rhythm);
+    function t(id, lab, val) { return '<div class="fld half"><span>' + lab + '</span>' + timeSel(val, 'id="' + id + '"') + '</div>'; }
+    sheet('<h3>Mon rythme</h3>' +
+      '<p class="hint" style="margin-top:0">Cinq réponses suffisent : les programmes de toutes les pièces en sont déduits.</p>' +
+      '<div class="grid2">' + t("wake_wd", "Lever en semaine", r.wake_wd) + t("sleep_wd", "Coucher en semaine", r.sleep_wd) + t("wake_we", "Lever le week-end", r.wake_we) + t("sleep_we", "Coucher le week-end", r.sleep_we) +
+      t("leave", "Départ de la maison", r.leave) + t("back", "Retour à la maison", r.back) + '</div>' +
+      '<div class="fld"><span>Jours où vous partez travailler</span>' + chips("wk", r.work) + '</div>' +
+      '<div class="fld"><span>Jours de télétravail</span>' + chips("rm", r.remote) + '</div>' +
+      '<button class="cta" id="sv">Enregistrer</button>', function (v) {
+      v.addEventListener("click", function (e) {
+        var b = e.target.closest(".days button"); if (!b) return;
+        b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
+      });
+      v.querySelector("#sv").addEventListener("click", function () {
+        var nr = {};
+        ["wake_wd", "sleep_wd", "wake_we", "sleep_we", "leave", "back"].forEach(function (k) { nr[k] = timeVal(v.querySelector("#" + k)); });
+        nr.work = chipVals(v, "wk"); nr.remote = chipVals(v, "rm");
+        v.remove(); saveDoc({ program: { rhythm: nr } }, "Rythme enregistré");
+      });
+    });
+  }
+
+  function openRoomProg(u) {
+    if (!u) return;
+    var base = Prog.daysOf(docNow(), u), days = JSON.parse(JSON.stringify(base)), cur = nowP().dow;
+    var custom = !!((prog().custom || {})[u.id]);
+    sheet('<h3>' + esc(u.name) + '</h3><div class="pick days" id="pd"></div><div id="steps"></div>' +
+      '<button class="ghost" id="add">Ajouter une étape</button>' +
+      '<div class="fld" style="margin-top:18px"><span>Copier cette journée sur</span><div class="pick" id="cp"><button data-c="wd">Lundi à vendredi</button><button data-c="we">Week-end</button><button data-c="all">Tous les jours</button></div></div>' +
+      '<button class="cta" id="sv">Enregistrer</button>' +
+      (custom ? '<button class="ghost" id="rs">Revenir au programme selon mon rythme</button>' : ""), function (v) {
+      function render() {
+        v.querySelector("#pd").innerHTML = DOW.map(function (d, i) { return '<button data-d="' + (i + 1) + '" aria-pressed="' + (cur === i + 1) + '">' + d + '</button>'; }).join("");
+        var l = days[cur];
+        v.querySelector("#steps").innerHTML = '<div class="tlr big">' + bar(days, cur) + '</div>' + l.map(function (x, i) {
+          return '<div class="step2" data-i="' + i + '">' + timeSel(x.t, "", i === 0) +
+            '<div class="seg3">' + ["confort", "eco", "off"].map(function (s2) { return '<button data-s="' + s2 + '" aria-pressed="' + (x.s === s2) + '">' + Prog.STATES[s2] + '</button>'; }).join("") + '</div>' +
+            (i === 0 ? '<span class="rmv"></span>' : '<button class="rmv" data-rm aria-label="Supprimer">' + svg('<path d="M6 6l12 12M18 6 6 18"/>', 1.8) + '</button>') + '</div>';
+        }).join("");
+      }
+      function norm() {
+        var l = days[cur].slice().sort(function (a, b) { return Prog.m(a.t) - Prog.m(b.t); });
+        l[0].t = "00:00"; days[cur] = l;
+      }
+      v.querySelector("#pd").addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; cur = +b.getAttribute("data-d"); render(); });
+      v.querySelector("#steps").addEventListener("click", function (e) {
+        var row = e.target.closest(".step2"); if (!row) return; var i = +row.getAttribute("data-i");
+        var sb = e.target.closest("[data-s]"); if (sb) { days[cur][i].s = sb.getAttribute("data-s"); render(); return; }
+        if (e.target.closest("[data-rm]")) { days[cur].splice(i, 1); render(); }
+      });
+      v.querySelector("#steps").addEventListener("change", function (e) {
+        var row = e.target.closest(".step2"); if (!row || e.target.tagName !== "SELECT") return;
+        days[cur][+row.getAttribute("data-i")].t = timeVal(row); norm(); render();
+      });
+      v.querySelector("#add").addEventListener("click", function () {
+        var l = days[cur], last = l[l.length - 1], t = Math.min(1435, Prog.m(last.t) + 120);
+        if (l.length >= 12) return;
+        l.push({ t: Prog.hhmm(t - t % 5), s: last.s === "confort" ? "eco" : "confort" }); norm(); render();
+      });
+      v.querySelector("#cp").addEventListener("click", function (e) {
+        var b = e.target.closest("button"); if (!b) return; var c = b.getAttribute("data-c");
+        for (var d = 1; d <= 7; d++) if (d !== cur && (c === "all" || (c === "wd" && d <= 5) || (c === "we" && d >= 6))) days[d] = JSON.parse(JSON.stringify(days[cur]));
+        toast("Journée copiée");
+      });
+      v.querySelector("#sv").addEventListener("click", function () {
+        var cu = {}; cu[u.id] = days; v.remove(); saveDoc({ program: { custom: cu } }, "Programme enregistré");
+      });
+      var rs = v.querySelector("#rs");
+      if (rs) rs.addEventListener("click", function () { var cu = {}; cu[u.id] = null; v.remove(); saveDoc({ program: { custom: cu } }, "Programme selon mon rythme"); });
+      render();
+    });
+  }
+
+  // Liaison de la session dediee au serveur : le mot de passe ne sert qu'une fois et n'est conserve nulle part.
+  function openServer() {
+    sheet('<h3>Pilotage automatique</h3>' +
+      '<p class="hint" style="margin-top:0">Le serveur ouvre sa propre session MELCloud pour appliquer vos modes et programmes toutes les 5 minutes, téléphone éteint. Saisissez une dernière fois votre mot de passe : il n’est conservé nulle part, seule la session chiffrée l’est.</p>' +
+      '<label class="fld"><span>E-mail MELCloud</span><input id="se" type="email" autocomplete="username" value="' + esc(S.email || "") + '"></label>' +
+      '<label class="fld"><span>Mot de passe</span><input id="sp" type="password" autocomplete="current-password"></label>' +
+      '<button class="cta" id="go">Activer</button><p class="err" id="er"></p>', function (v) {
+      var go = v.querySelector("#go"), er = v.querySelector("#er");
+      function lockTick() {
+        var left = Math.ceil((S.lockUntil - Date.now()) / 1000);
+        if (left > 0) { go.disabled = true; go.textContent = "Réessayer dans " + left + " s"; setTimeout(lockTick, 250); }
+        else if (go.textContent.indexOf("Réessayer") === 0) { go.disabled = false; go.textContent = "Activer"; }
+      }
+      lockTick();
+      go.addEventListener("click", function () {
+        if (Date.now() < S.lockUntil) return;
+        var email = v.querySelector("#se").value.trim(), pw = v.querySelector("#sp");
+        if (!email || !pw.value) { er.textContent = "Saisissez votre e-mail et votre mot de passe."; return; }
+        go.disabled = true; go.textContent = "Connexion…"; er.textContent = "";
+        api("login", { email: email, password: pw.value }, FN, true).then(function (d) {
+          pw.value = "";
+          if (!d.token) throw new Error("Session non obtenue");
+          S.fails = 0; put("fails", "0");
+          return api("link", { server: d.token }, FN_ENGINE);
+        }).then(function () {
+          v.remove(); toast("Pilotage automatique activé");
+          api("run", {}, FN_ENGINE).catch(function () {}).then(loadEngine);
+        }).catch(function (e) {
+          pw.value = "";
+          if (/incorrect/i.test(e.message || "")) {
+            S.fails += 1;
+            if (S.fails >= MAX_FAILS) { S.fails = 0; S.lockUntil = Date.now() + LOCK_MS; put("lockUntil", String(S.lockUntil)); er.textContent = "Trop de tentatives. Patientez quelques secondes."; }
+            else er.textContent = "E-mail ou mot de passe incorrect.";
+            put("fails", String(S.fails));
+          } else er.textContent = e.message || "Activation impossible.";
+          go.disabled = false; go.textContent = "Activer"; lockTick();
+        });
+      });
+    });
+  }
+  function unlinkServer() {
+    sheet('<h3>Désactiver le pilotage automatique ?</h3><p class="hint" style="margin-top:0">Les modes et programmes ne seront plus appliqués téléphone éteint. Vos réglages sont conservés.</p>' +
+      '<button class="cta" id="ok">Désactiver</button><button class="ghost" id="no">Annuler</button>', function (v) {
+      v.querySelector("#no").addEventListener("click", function () { v.remove(); });
+      v.querySelector("#ok").addEventListener("click", function () {
+        v.remove(); api("unlink", {}, FN_ENGINE).then(function () { toast("Pilotage automatique désactivé"); loadEngine(); }).catch(function () { toast("Opération impossible"); });
       });
     });
   }
