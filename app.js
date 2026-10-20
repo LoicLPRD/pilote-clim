@@ -344,10 +344,19 @@
     document.getElementById("main").addEventListener("click", onMainClick);
     document.getElementById("top").addEventListener("click", onMainClick);
     draw();
-    api("list", {}).then(function (d) { if (d.units) { S.units = d.units; draw(); loadEngine(); loadEnergy(); } }).catch(onErr);
+    api("list", {}).then(function (d) { S.offline = false; if (d.units) { S.units = d.units; draw(); loadEngine(); loadEnergy(); } }).catch(onErr);
     startAuto();
   }
-  function onErr(e) { if (e.needLogin) renderLogin("Session expirée. Reconnectez-vous."); else toast("Connexion au serveur interrompue"); }
+  function onErr(e) {
+    if (e.needLogin) return renderLogin("Session expirée. Reconnectez-vous.");
+    if (!S.offline) { S.offline = true; if (!document.querySelector(".veil")) draw(); }
+  }
+  // Service indisponible : on le dit clairement et on renvoie vers les telecommandes.
+  function offlineHTML() {
+    return '<div class="offl"><b>Service momentanément indisponible</b>' +
+      '<span>Vos clims gardent leur réglage actuel : rien ne s’allumera ni ne changera tout seul. ' +
+      'Utilisez les télécommandes, ou l’application MELCloud Home. L’application se reconnectera d’elle-même.</span></div>';
+  }
 
   var BACK = '<path d="m15 5-7 7 7 7"/>', SLIDERS = '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>';
   function drawTop(u) {
@@ -365,7 +374,7 @@
   }
   function draw() {
     var main = document.getElementById("main"); if (!main) return;
-    if (!S.units.length) { main.innerHTML = '<div class="loading">Chargement</div>'; return; }
+    if (!S.units.length) { main.innerHTML = S.offline ? offlineHTML() : '<div class="loading">Chargement</div>'; return; }
     if (S.view === "prog") { drawTopTitle("Programmation"); main.innerHTML = progHTML(); document.documentElement.style.setProperty("--acc", "var(--blue)"); return; }
     var u = S.view !== "home" ? unitById(S.view) : null;
     if (!u) { S.view = "home"; drawTop(null); main.innerHTML = homeHTML(); document.documentElement.style.setProperty("--acc", "var(--blue)"); }
@@ -417,7 +426,7 @@
         '<button class="qp" data-qpower="' + esc(u.id) + '" aria-pressed="' + !!u.power + '" aria-label="' + (u.power ? "Éteindre " : "Allumer ") + esc(u.name) + '">' + svg('<path d="M12 3v9M6.5 7a8 8 0 1 0 11 0"/>', 2) + '</button></div>';
     }).join("");
 
-    return '<section class="home-v">' +
+    return '<section class="home-v">' + (S.offline ? offlineHTML() : "") +
       '<div class="hstat"><h1>Maison</h1><p>' + (on ? on + " sur " + S.units.length + " en marche" : "Tout est arrêté") + (DEMO ? " · démonstration" : "") + '</p></div>' +
       '<div class="hero"><div class="avg">' + (avg != null ? fmt(avg) : "–") + '<sup>°</sup></div></div>' +
       '<p class="segcap" style="margin-top:4px">Moyenne intérieure</p>' +
@@ -534,7 +543,7 @@
     }
     var modeCap = { Heat: "Chauffage vers la consigne.", Cool: "Rafraîchissement vers la consigne.", Automatic: "La clim choisit seule entre chaud et froid pour tenir la consigne.", Dry: "Assèche l’air, température peu modifiée.", Fan: "Brasse l’air, sans chauffer ni refroidir." }[u.mode] || "";
 
-    return '<section class="room' + (u.power ? "" : " off") + '">' +
+    return '<section class="room' + (u.power ? "" : " off") + '">' + (S.offline ? offlineHTML() : "") +
       '<p class="status">' + status + '</p>' + progLine(u) +
       '<div class="stage"><div data-cv="room:' + esc(u.id) + '"></div>' +
         '<div class="vp" id="vp">' + vaneCap(u.power, vv, vh) + '</div>' +
@@ -625,7 +634,7 @@
     hold();
     api("control", { unit_id: u.id, changes: changes })
       .then(function () { if (label) toast(label); later(); })
-      .catch(function (e) { if (e.needLogin) return onErr(e); toast("Commande refusée"); later(); });
+      .catch(function (e) { if (e.needLogin) return onErr(e); toast(S.offline ? "Service indisponible : utilisez la télécommande" : "Commande refusée"); later(); });
   }
 
   // ---------- Mode de la maison (applique en une fois a toutes les pieces) ----------
@@ -723,9 +732,11 @@
   function later() { clearTimeout(laterT); laterT = setTimeout(refresh, 2500); }
   function refresh() {
     api("list", {}).then(function (d) {
-      if (!d.units || Date.now() < S.busyUntil || document.querySelector(".veil")) return;
-      S.units = d.units; draw();
-    }).catch(function (e) { if (e.needLogin) onErr(e); });
+      var was = S.offline; S.offline = false;
+      if (!d.units || Date.now() < S.busyUntil || document.querySelector(".veil")) { if (was) draw(); return; }
+      var first = !S.units.length; S.units = d.units; draw();
+      if (first) { loadEngine(); loadEnergy(); }
+    }).catch(onErr);
   }
   function loadLinky() {
     api("daily", { days: 62 }, FN_LINKY).then(function (d) {
