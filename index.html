@@ -50,6 +50,25 @@
 
   /* ---- Vue piece ---- */
   .room { display: flex; flex-direction: column; align-items: center; text-align: center; padding-top: 18px; }
+  .rsw { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; max-width: 100%; padding: 2px; }
+  .rsw::-webkit-scrollbar { display: none; }
+  .rp { flex: none; display: flex; align-items: center; gap: 8px; padding: 9px 15px; border-radius: 999px; background: var(--panel); color: var(--muted); font-size: .84rem; transition: background .2s, color .2s; }
+  .rp i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+  .rp.on i { background: var(--pc); box-shadow: 0 0 8px var(--pc); }
+  .rp[aria-current="true"] { background: var(--fg); color: var(--bg); font-weight: 500; }
+  .room .status { margin-top: 14px; }
+  .vgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; width: 100%; }
+  .vgrid button { height: 52px; background: var(--panel); border-radius: 14px; display: grid; place-items: center; color: var(--muted); transition: background .2s, color .2s, transform .12s; }
+  .vgrid button:active { transform: scale(.94); }
+  .vgrid button svg { width: 24px; height: 24px; }
+  .vgrid button[aria-pressed="true"] { background: var(--acc); color: #fff; }
+  .vcap { width: 100%; text-align: left; margin-top: 9px; font-size: .78rem; color: var(--muted); min-height: 1.2em; }
+  .lrow { display: flex; justify-content: space-between; align-items: baseline; }
+  .lrow .lnk { letter-spacing: 0; text-transform: none; font-size: .78rem; }
+  .card { cursor: pointer; }
+  .qp { width: 40px; height: 40px; border-radius: 50%; flex: none; display: grid; place-items: center; color: var(--muted); border: 1px solid var(--line); margin-left: 4px; transition: all .2s; }
+  .qp svg { width: 18px; height: 18px; }
+  .qp[aria-pressed="true"] { background: var(--cc); border-color: var(--cc); color: #fff; }
   .room h2 { margin: 0; font-weight: 500; font-size: 1.05rem; letter-spacing: .14em; text-transform: uppercase; }
   .status { margin: 8px 0 0; color: var(--muted); font-size: .86rem; }
   .status b { color: var(--fg); font-weight: 500; }
@@ -107,13 +126,13 @@
   .cards { display: flex; flex-direction: column; gap: 10px; }
   .card { background: var(--panel); border-radius: 20px; padding: 8px 18px 8px 8px; display: flex; align-items: center; gap: 12px; text-align: left; width: 100%; transition: transform .12s; }
   .card:active { transform: scale(.985); }
-  .card .cv.mini { width: 112px; height: 78px; flex: none; display: block; border-radius: 14px; background: var(--panel-2); }
-  .card .cbody { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .card .cv.mini { width: 92px; height: 78px; flex: none; display: block; border-radius: 14px; background: var(--panel-2); }
+  .card .cbody { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
   .card .nm { font-weight: 500; font-size: .98rem; }
-  .card .sm { color: var(--muted); font-size: .78rem; }
+  .card .sm { color: var(--muted); font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .card.on .sm { color: var(--cc); }
   .card .ty { color: var(--dim); font-size: .7rem; letter-spacing: .02em; }
-  .card .t { margin-left: auto; font-weight: 300; font-size: 1.75rem; letter-spacing: -.02em; flex: none; }
+  .card .t { font-weight: 300; font-size: 1.75rem; letter-spacing: -.02em; flex: none; }
   .card .t small { font-size: .55em; color: var(--muted); }
 
   /* Consommation */
@@ -149,11 +168,6 @@
   .room .dial { margin: 6px 0 14px; }
   .chip { font-size: .76rem; color: var(--acc); border: 1px solid color-mix(in srgb, var(--acc) 45%, transparent); padding: 7px 14px; border-radius: 999px; margin: 0 0 18px; }
   .lnk { color: var(--muted); font-size: .8rem; text-decoration: underline; text-underline-offset: 3px; }
-  .advt { width: 100%; display: flex; align-items: center; justify-content: space-between; margin-top: 28px; padding: 16px 2px; border-top: 1px solid var(--line); color: var(--muted); font-size: .72rem; letter-spacing: .2em; text-transform: uppercase; }
-  .advt svg { width: 18px; height: 18px; transition: transform .25s; }
-  .advt[aria-expanded="true"] svg { transform: rotate(180deg); }
-  .adv { width: 100%; }
-  .adv .lbl:first-child { margin-top: 8px; }
   .opts { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
   .opts button, .pick button { padding: 9px 12px; border-radius: 12px; background: var(--panel); color: var(--muted); font-size: .76rem; transition: background .2s, color .2s; }
   .opts button[aria-pressed="true"], .pick button[aria-pressed="true"] { background: var(--acc); color: #fff; }
@@ -212,7 +226,7 @@
 <body>
 <div id="app"></div>
 <div class="toast" id="toast"></div>
-<script src="split.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="split.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
