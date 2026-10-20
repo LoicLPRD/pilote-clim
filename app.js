@@ -662,13 +662,23 @@
         box.innerHTML =
           '<ol class="steps"><li>Autorisez le partage de vos données Enedis avec Conso API, un service gratuit. Connectez-vous avec votre compte Enedis.' +
           '<a class="ghost" href="https://conso.boris.sh/api/auth" target="_blank" rel="noopener">Ouvrir Conso API</a></li>' +
-          '<li>À la fin, copiez le jeton affiché et collez-le ci-dessous.</li></ol>' +
+          '<li>À la fin, copiez le premier bloc, celui qui commence par « ey ». Le second bloc, « linky auth -t … », contient le même jeton : inutile de le copier.</li></ol>' +
           '<label class="fld"><span>Jeton Conso API</span><input id="ct" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
-          '<label class="fld"><span>Point de livraison (PRM, 14 chiffres)</span><input id="pr" inputmode="numeric" autocomplete="off" maxlength="17"></label>' +
-          '<p class="hint">Le PRM figure sur votre facture, dans votre compte Enedis, ou sur le Linky en appuyant sur la touche +.</p>' +
+          '<label class="fld" id="prf"><span>Point de livraison (PRM, 14 chiffres)</span><input id="pr" inputmode="numeric" autocomplete="off" maxlength="17"></label>' +
+          '<p class="hint" id="prh">Rempli automatiquement à partir du jeton. Sinon : sur votre facture, dans votre compte Enedis, ou sur le Linky avec la touche +.</p>' +
           '<button class="cta" id="go">Relier le compteur</button><p class="err" id="le"></p>';
+        // Le jeton Conso API est un JWT dont le champ « sub » liste les PRM autorises.
+        function clean(v) { return String(v || "").replace(/^\s*linky\s+auth\s+-t\s+/i, "").replace(/\s+/g, ""); }
+        function prmsOf(tk) {
+          try { var p = JSON.parse(atob(tk.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).sub; return Array.isArray(p) ? p : p ? [p] : []; } catch (e) { return []; }
+        }
+        box.querySelector("#ct").addEventListener("input", function () {
+          var list = prmsOf(clean(this.value)), pr = box.querySelector("#pr"), h = box.querySelector("#prh");
+          if (list.length === 1) { pr.value = list[0]; h.textContent = "Compteur détecté dans le jeton."; }
+          else if (list.length > 1) { h.textContent = "Ce jeton couvre plusieurs compteurs : " + list.join(", ") + ". Saisissez celui de la maison."; }
+        });
         box.querySelector("#go").addEventListener("click", function () {
-          var ct = box.querySelector("#ct").value.trim(), pr = box.querySelector("#pr").value.replace(/\s/g, ""), go = box.querySelector("#go"), le = box.querySelector("#le");
+          var ct = clean(box.querySelector("#ct").value), pr = box.querySelector("#pr").value.replace(/\s/g, ""), go = box.querySelector("#go"), le = box.querySelector("#le");
           if (!/^\d{14}$/.test(pr)) { le.textContent = "Le PRM compte 14 chiffres."; return; }
           if (ct.length < 20) { le.textContent = "Collez le jeton complet."; return; }
           go.disabled = true; go.textContent = "Vérification auprès d’Enedis…"; le.textContent = "";
