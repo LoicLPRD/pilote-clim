@@ -1,5 +1,5 @@
 // Cache de l'interface uniquement. Les appels au serveur ne sont jamais mis en cache.
-var CACHE = "pilote-clim-v16";
+var CACHE = "pilote-clim-v17";
 var SHELL = ["./", "index.html", "app.js", "split.js", "prog.js", "manifest.json", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", function (e) {
@@ -23,7 +23,8 @@ self.addEventListener("fetch", function (e) {
       });
     }
     var t = setTimeout(fallback, 4000);
-    fetch(req).then(function (res) {
+    // « no-cache » : revalidation aupres du serveur a chaque fois, pour que chaque mise a jour apparaisse aussitot.
+    fetch(req, { cache: "no-cache" }).then(function (res) {
       clearTimeout(t);
       if (res && res.ok) { var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(req, copy); }); }
       if (!done) { done = true; resolve(res); }
