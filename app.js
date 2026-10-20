@@ -1,6 +1,7 @@
 (function () {
   "use strict";
   var FN = "https://lwftspnyvoqejetemyhu.supabase.co/functions/v1/melcloud";
+  var FN_LINKY = "https://lwftspnyvoqejetemyhu.supabase.co/functions/v1/linky";
   var KEY = "sb_publishable_6yruO30gDX8L3LfXWXWB2Q_54fg6Wme";
   var MAX_FAILS = 3, LOCK_MS = 10000;
   var DEMO = /[?&]demo\b/.test(location.search);
@@ -52,7 +53,7 @@
     fails: +(get("fails") || 0), lockUntil: +(get("lockUntil") || 0),
     units: [], view: get("view") || "home", energy: {}, busyUntil: 0,
     rooms: getJ("rooms", {}), season: get("season") || "auto", house: getJ("house", null),
-    hinted: get("hinted") === "1"
+    hinted: get("hinted") === "1", linky: null
   };
   if (DEMO) { S.rooms = getJ("demo_rooms", {}); S.house = getJ("demo_house", null); }
   function saveRooms() { put(DEMO ? "demo_rooms" : "rooms", JSON.stringify(S.rooms)); }
@@ -69,15 +70,15 @@
   }
 
   // ---------- Serveur ----------
-  function api(action, extra) {
-    if (DEMO) return demoApi(action, extra || {});
+  function api(action, extra, fn) {
+    if (DEMO) return demoApi(action, extra || {}, fn);
     var body = Object.assign({ action: action }, extra || {});
     var isLogin = !!(extra && extra.password);
     if (!isLogin) {
       if (S.access && Date.now() < S.expiry - 60000) body.token = S.access;
       else if (S.refresh) body.refresh = S.refresh;
     }
-    return fetch(FN, {
+    return fetch(fn || FN, {
       method: "POST",
       headers: { "Content-Type": "application/json", "apikey": KEY, "Authorization": "Bearer " + KEY },
       body: JSON.stringify(body)
@@ -97,9 +98,21 @@
     { id: "d2", name: "Chambre", power: true, mode: "Heat", set_temperature: 19, room_temperature: 18.5, fan_speed: "Two", in_error: false, connected: true },
     { id: "d3", name: "Bureau", power: false, mode: "Heat", set_temperature: 20, room_temperature: 18, fan_speed: "Three", in_error: false, connected: true }
   ];
-  function demoApi(action, x) {
+  var DE = {};
+  function demoApi(action, x, fn) {
     return new Promise(function (ok) {
       setTimeout(function () {
+        if (fn === FN_LINKY) {
+          if (action !== "daily") return ok({ linked: true, prm: "•••• 4821" });
+          var vals = [], now = new Date();
+          for (var i = (x.days || 62); i >= 1; i--) {
+            var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i), k = iso(d);
+            var sd = Math.sin(d.getTime() / 864e5 * 7.13) * 9999; sd = sd - Math.floor(sd);
+            var clim = ["d1", "d2", "d3"].reduce(function (a, id) { var e = (DE[id] || {})[k]; return a + (e || 0); }, 0);
+            vals.push({ day: k, wh: Math.round(clim + 6200 + sd * 3800) });
+          }
+          return ok({ linked: true, values: vals });
+        }
         if (action === "list") return ok({ units: DU.map(function (u) { return Object.assign({}, u); }) });
         if (action === "control") {
           var u = DU.filter(function (v) { return v.id === x.unit_id; })[0], c = x.changes || {};
@@ -117,7 +130,9 @@
             var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
             var seed = Math.sin(d.getTime() / 864e5 * 12.9898 + base) * 43758.5453; seed = seed - Math.floor(seed);
             var cold = 1 + 0.35 * Math.cos((d.getMonth() + d.getDate() / 30) / 12 * 2 * Math.PI);
-            out.push({ time: iso(d) + "T00:00:00", value: Math.round(base * cold * (0.55 + seed * 0.9) / 100) * 100 * (i === 0 ? 0.6 : 1) });
+            var val = Math.round(base * cold * (0.55 + seed * 0.9) / 100) * 100 * (i === 0 ? 0.6 : 1);
+            (DE[x.unit_id] = DE[x.unit_id] || {})[iso(d)] = val;
+            out.push({ time: iso(d) + "T00:00:00", value: val });
           }
           return ok({ values: out });
         }
@@ -333,14 +348,15 @@
       '<div class="qa" role="group" aria-label="Mode de la maison">' + seg + '</div>' +
       '<p class="segcap">' + cap + '</p>' +
       '<div class="sh"><span>Pièces</span></div><div class="cards">' + cards + '</div>' +
-      '<div class="sh"><span>Consommation</span><small>Estimation</small></div>' + consoHTML() +
+      '<div class="sh"><span>Consommation</span><small>' + (S.linky && S.linky.days ? "Linky mesuré" : "Estimation") + '</small></div>' + consoHTML() +
       '</section>';
   }
 
   function consoHTML() {
-    var c = consumption();
+    var c = consumption(), L = S.linky, t = S.tariff;
+    if (L && L.days && Object.keys(L.days).length) return linkyHTML(c, L.days);
     if (!c.have) return '<div class="cons"><span class="k">Lecture de la consommation…</span></div>';
-    var t = S.tariff, delta = c.prev > 0 ? (c.proj - c.prev) / c.prev * 100 : null;
+    var delta = c.prev > 0 ? (c.proj - c.prev) / c.prev * 100 : null;
     var keys = Object.keys(c.days).sort().slice(-30), max = 0;
     keys.forEach(function (k) { if (c.days[k] > max) max = c.days[k]; });
     var today = iso(new Date());
@@ -348,17 +364,54 @@
       var h = max ? Math.max(4, c.days[k] / max * 100) : 4;
       return '<i style="height:' + h.toFixed(1) + '%"' + (k === today ? ' class="part"' : "") + ' title="' + esc(k) + '"></i>';
     }).join("");
-    var split = S.units.map(function (u) {
-      var v = c.per[u.id] || 0, p = c.cur > 0 ? v / c.cur * 100 : 0;
-      return '<div class="sp"><span>' + esc(u.name) + '</span><span class="tr"><b style="width:' + p.toFixed(1) + '%"></b></span><span class="v">' + eur(v * t, 0) + '</span></div>';
-    }).join("");
     var dl = delta == null ? "" : '<span class="dl ' + (delta > 0 ? "up" : "dn") + '">' + (delta > 0 ? "+" : "−") + Math.abs(Math.round(delta)) + ' % vs ' + c.pmonth + '</span>';
+    var lk = !L ? "" : L.error ? '<p class="n">Compteur Linky momentanément indisponible : ' + esc(L.error) + '</p>'
+      : '<button class="lkrow" data-linky><span><b>Relier le compteur Linky</b><small>Pour la consommation réelle de la maison, mesurée par Enedis.</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</button>';
     return '<div class="cons">' +
-      '<div class="ch"><div><div class="cm">' + c.month.charAt(0).toUpperCase() + c.month.slice(1) + ' à ce jour</div><div class="eur">' + eur(c.cur * t) + '</div></div>' +
+      '<div class="ch"><div><div class="cm">' + cap1(c.month) + ' à ce jour</div><div class="eur">' + eur(c.cur * t) + '</div></div>' +
       '<div class="pj"><div class="cm">Projection fin de mois</div><div class="pv">' + eur(c.proj * t, 0) + '</div>' + dl + '</div></div>' +
       '<div class="bars" aria-label="Consommation des 30 derniers jours">' + bars + '</div>' +
-      '<div class="splits">' + split + '</div>' +
+      splitsHTML(c) +
       '<p class="n">' + fmt(c.cur) + ' kWh ce mois · ' + c.pmonth + ' : ' + eur(c.prev * t, 0) + '. Estimation fournie par Mitsubishi, non mesurée.</p>' +
+      lk + '</div>';
+  }
+  function cap1(m) { return m.charAt(0).toUpperCase() + m.slice(1); }
+  function splitsHTML(c) {
+    return '<div class="splits">' + S.units.map(function (u) {
+      var v = c.per[u.id] || 0, p = c.cur > 0 ? v / c.cur * 100 : 0;
+      return '<div class="sp"><span>' + esc(u.name) + '</span><span class="tr"><b style="width:' + p.toFixed(1) + '%"></b></span><span class="v">' + eur(v * S.tariff, 0) + '</span></div>';
+    }).join("") + '</div>';
+  }
+
+  // Consommation reelle (Linky) : maison mesuree, part de la climatisation estimee sur les memes jours.
+  function linkyHTML(c, D) {
+    var t = S.tariff, now = new Date(), mk = iso(now).slice(0, 7);
+    var pk = iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)).slice(0, 7);
+    var dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    var cur = 0, prev = 0, n = 0, clim = 0;
+    Object.keys(D).forEach(function (k) {
+      if (k.slice(0, 7) === mk) { cur += D[k]; n++; clim += c.days[k] || 0; }
+      else if (k.slice(0, 7) === pk) prev += D[k];
+    });
+    var proj = n ? cur / n * dim : 0, delta = prev > 0 && n ? (proj - prev) / prev * 100 : null;
+    var share = cur > 0 ? Math.min(100, clim / cur * 100) : 0, other = Math.max(0, cur - clim);
+    var keys = Object.keys(D).sort().slice(-30), max = 0;
+    keys.forEach(function (k) { if (D[k] > max) max = D[k]; });
+    var bars = keys.map(function (k) {
+      var h = max ? Math.max(4, D[k] / max * 100) : 4, cp = D[k] > 0 ? Math.min(100, (c.days[k] || 0) / D[k] * 100) : 0;
+      return '<i style="height:' + h.toFixed(1) + '%" title="' + esc(k) + ' · ' + fmt(D[k]) + ' kWh"><b style="height:' + cp.toFixed(1) + '%"></b></i>';
+    }).join("");
+    var dl = delta == null ? "" : '<span class="dl ' + (delta > 0 ? "up" : "dn") + '">' + (delta > 0 ? "+" : "−") + Math.abs(Math.round(delta)) + ' % vs ' + c.pmonth + '</span>';
+    var lastK = keys[keys.length - 1];
+    return '<div class="cons lk">' +
+      '<div class="ch"><div><div class="cm">Maison · ' + c.month + ' à ce jour</div><div class="eur">' + eur(cur * t) + '</div></div>' +
+      '<div class="pj"><div class="cm">Projection fin de mois</div><div class="pv">' + eur(proj * t, 0) + '</div>' + dl + '</div></div>' +
+      '<div class="mix"><div><span class="sw cl"></span>Climatisation<b>' + eur(clim * t, 0) + '</b><small>' + Math.round(share) + ' %</small></div>' +
+      '<div><span class="sw ot"></span>Autres usages<b>' + eur(other * t, 0) + '</b><small>' + Math.round(100 - share) + ' %</small></div></div>' +
+      '<div class="bars stack" aria-label="Consommation de la maison, 30 derniers jours">' + bars + '</div>' +
+      splitsHTML(c) +
+      '<p class="n">Maison : ' + fmt(cur) + ' kWh mesurés par le compteur Linky' + (lastK ? ', jusqu’au ' + lastK.slice(8, 10) + '/' + lastK.slice(5, 7) : "") + ' (Enedis publie les données le lendemain). ' +
+      cap1(c.pmonth) + ' : ' + eur(prev * t, 0) + '. Part de la climatisation : estimation Mitsubishi rapportée à la mesure.</p>' +
       '</div>';
   }
 
@@ -396,7 +449,7 @@
       '<p class="status">' + status + '</p>' +
       '<div class="stage"><div data-cv="room:' + esc(u.id) + '"></div>' +
         '<div class="vp" id="vp">' + vaneCap(u.power, vv, vh) + '</div>' +
-        (u.power && !S.hinted ? '<div class="hint" id="hint">Glissez le flux pour l’orienter · appui long : balayage</div>' : "") +
+        (u.power && !S.hinted ? '<div class="ghint" id="hint">Glissez le flux pour l’orienter · appui long : balayage</div>' : "") +
       '</div>' +
       '<div class="dial">' +
         '<button class="chev" data-step="-1" aria-label="Baisser">' + svg('<path d="m15 6-6 6 6 6"/>', 2) + '</button>' +
@@ -448,6 +501,7 @@
     if (b.hasAttribute("data-back")) { S.view = "home"; put("view", "home"); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-go")) { S.view = b.getAttribute("data-go"); put("view", S.view); buzz(); draw(); return; }
     if (b.hasAttribute("data-alloff")) { allOff(); return; }
+    if (b.hasAttribute("data-linky")) { openLinky(); return; }
     if (b.hasAttribute("data-qpower")) {
       var q = unitById(b.getAttribute("data-qpower")); if (!q) return;
       buzz(); hold(); q.power = !q.power; draw(); send(q, { power: q.power }, q.name + (q.power ? " allumée" : " éteinte")); return;
@@ -534,7 +588,18 @@
       S.units = d.units; draw();
     }).catch(function (e) { if (e.needLogin) onErr(e); });
   }
+  function loadLinky() {
+    api("daily", { days: 62 }, FN_LINKY).then(function (d) {
+      if (!d.linked) { S.linky = { linked: false }; }
+      else {
+        var m = {}; (d.values || []).forEach(function (v) { m[String(v.day).slice(0, 10)] = (Number(v.wh) || 0) / 1000; });
+        S.linky = { linked: true, days: m };
+      }
+      if (Date.now() >= S.busyUntil) draw();
+    }).catch(function (e) { S.linky = { linked: true, error: e.message || "indisponible" }; draw(); });
+  }
   function loadEnergy() {
+    setTimeout(loadLinky, DEMO ? 300 : 1200);
     S.units.forEach(function (u) {
       api("energy", { unit_id: u.id, days: 62 }).then(function (d) {
         S.energy[u.id] = (d.values || []).map(function (v) { return { d: String(v.time).slice(0, 10), kwh: (Number(v.value) || 0) / 1000 }; });
@@ -562,9 +627,11 @@
       '<p class="hint">Détermine ce que font les modes Maison, Nuit, Absent et Vacances. Actuellement : ' + (season() === "cool" ? "rafraîchissement" : "chauffage") + '.</p>' +
       '<label class="fld"><span>Prix du kWh (€)</span><input id="tf" type="number" step="0.0001" inputmode="decimal" value="' + S.tariff + '"></label>' +
       '<p class="hint">Tarif réglementé base : environ 0,2016 €.</p>' +
+      '<button class="lkrow" id="lk"><span><b>Compteur Linky</b><small>' + (S.linky && S.linky.linked ? "Relié, consommation réelle affichée" : "Non relié") + '</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</button>' +
       '<button class="cta" id="sv">Enregistrer</button>' +
       (DEMO ? '<a class="ghost" href="./">Quitter la démonstration</a>' : '<button class="ghost" id="lo">Se déconnecter</button>'), function (v) {
       var pick = S.season;
+      v.querySelector("#lk").addEventListener("click", function () { v.remove(); openLinky(); });
       v.querySelector("#ss").addEventListener("click", function (e) {
         var b = e.target.closest("button"); if (!b) return; pick = b.getAttribute("data-s");
         Array.prototype.forEach.call(v.querySelectorAll("#ss button"), function (x) { x.setAttribute("aria-pressed", x === b); });
@@ -574,6 +641,46 @@
         S.season = pick; put("season", pick); v.remove(); draw(); toast("Enregistré");
       });
       var l = v.querySelector("#lo"); if (l) l.addEventListener("click", function () { v.remove(); logout(); });
+    });
+  }
+  function openLinky() {
+    var linked = S.linky && S.linky.linked;
+    sheet('<h3>Compteur Linky</h3><div id="lkb"><p class="hint" style="margin:0">Vérification…</p></div>', function (v) {
+      var box = v.querySelector("#lkb");
+      api("status", {}, FN_LINKY).then(function (d) { render(d.linked, d.prm); }).catch(function () { render(linked, null); });
+      function render(isLinked, prm) {
+        if (isLinked) {
+          box.innerHTML = '<p class="lkok">Relié au point de livraison ' + esc(prm || "") + '.</p>' +
+            '<p class="hint" style="margin-top:0">La consommation de la maison est lue chez Enedis une fois par jour, puis conservée sur le serveur. Le jeton d’accès est chiffré et n’est jamais renvoyé à l’application.</p>' +
+            '<button class="ghost" id="ul">Délier le compteur</button>';
+          box.querySelector("#ul").addEventListener("click", function () {
+            api("unlink", {}, FN_LINKY).then(function () { S.linky = { linked: false }; v.remove(); draw(); toast("Compteur délié"); })
+              .catch(function () { toast("Opération impossible"); });
+          });
+          return;
+        }
+        box.innerHTML =
+          '<ol class="steps"><li>Autorisez le partage de vos données Enedis avec Conso API, un service gratuit. Connectez-vous avec votre compte Enedis.' +
+          '<a class="ghost" href="https://conso.boris.sh/api/auth" target="_blank" rel="noopener">Ouvrir Conso API</a></li>' +
+          '<li>À la fin, copiez le jeton affiché et collez-le ci-dessous.</li></ol>' +
+          '<label class="fld"><span>Jeton Conso API</span><input id="ct" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
+          '<label class="fld"><span>Point de livraison (PRM, 14 chiffres)</span><input id="pr" inputmode="numeric" autocomplete="off" maxlength="17"></label>' +
+          '<p class="hint">Le PRM figure sur votre facture, dans votre compte Enedis, ou sur le Linky en appuyant sur la touche +.</p>' +
+          '<button class="cta" id="go">Relier le compteur</button><p class="err" id="le"></p>';
+        box.querySelector("#go").addEventListener("click", function () {
+          var ct = box.querySelector("#ct").value.trim(), pr = box.querySelector("#pr").value.replace(/\s/g, ""), go = box.querySelector("#go"), le = box.querySelector("#le");
+          if (!/^\d{14}$/.test(pr)) { le.textContent = "Le PRM compte 14 chiffres."; return; }
+          if (ct.length < 20) { le.textContent = "Collez le jeton complet."; return; }
+          go.disabled = true; go.textContent = "Vérification auprès d’Enedis…"; le.textContent = "";
+          api("setup", { conso_token: ct, prm: pr }, FN_LINKY).then(function () {
+            box.querySelector("#ct").value = "";
+            v.remove(); toast("Compteur relié"); S.linky = null; loadLinky();
+          }).catch(function (e) {
+            box.querySelector("#ct").value = "";
+            go.disabled = false; go.textContent = "Relier le compteur"; le.textContent = e.message || "Liaison impossible.";
+          });
+        });
+      }
     });
   }
   function openRoom(u) {
