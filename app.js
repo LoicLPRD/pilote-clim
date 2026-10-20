@@ -49,7 +49,8 @@
 
   var S = {
     email: get("email"), access: get("access"), refresh: get("refresh"), expiry: +(get("expiry") || 0),
-    tariff: parseFloat(get("tariff") || "0.2016"),
+    tariff: parseFloat(get("tariff") && get("tariff") !== "0.2016" ? get("tariff") : "0.1923"),
+    sub: parseFloat(get("sub") || "16.811"),
     fails: +(get("fails") || 0), lockUntil: +(get("lockUntil") || 0),
     units: [], view: get("view") || "home", energy: {}, busyUntil: 0,
     rooms: getJ("rooms", {}), season: get("season") || "auto", house: getJ("house", null),
@@ -393,7 +394,10 @@
       if (k.slice(0, 7) === mk) { cur += D[k]; n++; clim += c.days[k] || 0; }
       else if (k.slice(0, 7) === pk) prev += D[k];
     });
-    var proj = n ? cur / n * dim : 0, delta = prev > 0 && n ? (proj - prev) / prev * 100 : null;
+    var proj = n ? cur / n * dim : 0;
+    // Facture estimee : energie mesuree + abonnement au prorata des jours mesures.
+    var subCur = S.sub * n / dim, billCur = cur * t + subCur, billProj = proj * t + S.sub, billPrev = prev * t + S.sub;
+    var delta = prev > 0 && n ? (billProj - billPrev) / billPrev * 100 : null;
     var share = cur > 0 ? Math.min(100, clim / cur * 100) : 0, other = Math.max(0, cur - clim);
     var keys = Object.keys(D).sort().slice(-30), max = 0;
     keys.forEach(function (k) { if (D[k] > max) max = D[k]; });
@@ -404,14 +408,15 @@
     var dl = delta == null ? "" : '<span class="dl ' + (delta > 0 ? "up" : "dn") + '">' + (delta > 0 ? "+" : "−") + Math.abs(Math.round(delta)) + ' % vs ' + c.pmonth + '</span>';
     var lastK = keys[keys.length - 1];
     return '<div class="cons lk">' +
-      '<div class="ch"><div><div class="cm">Maison · ' + c.month + ' à ce jour</div><div class="eur">' + eur(cur * t) + '</div></div>' +
-      '<div class="pj"><div class="cm">Projection fin de mois</div><div class="pv">' + eur(proj * t, 0) + '</div>' + dl + '</div></div>' +
+      '<div class="ch"><div><div class="cm">Facture · ' + c.month + ' à ce jour</div><div class="eur">' + eur(billCur) + '</div></div>' +
+      '<div class="pj"><div class="cm">Projection fin de mois</div><div class="pv">' + eur(billProj, 0) + '</div>' + dl + '</div></div>' +
+      '<p class="bk">Électricité ' + eur(cur * t) + ' · abonnement ' + eur(subCur) + '</p>' +
       '<div class="mix"><div><span class="sw cl"></span>Climatisation<b>' + eur(clim * t, 0) + '</b><small>' + Math.round(share) + ' %</small></div>' +
       '<div><span class="sw ot"></span>Autres usages<b>' + eur(other * t, 0) + '</b><small>' + Math.round(100 - share) + ' %</small></div></div>' +
       '<div class="bars stack" aria-label="Consommation de la maison, 30 derniers jours">' + bars + '</div>' +
       splitsHTML(c) +
       '<p class="n">Maison : ' + fmt(cur) + ' kWh mesurés par le compteur Linky' + (lastK ? ', jusqu’au ' + lastK.slice(8, 10) + '/' + lastK.slice(5, 7) : "") + ' (Enedis publie les données le lendemain). ' +
-      cap1(c.pmonth) + ' : ' + eur(prev * t, 0) + '. Part de la climatisation : estimation Mitsubishi rapportée à la mesure.</p>' +
+      cap1(c.pmonth) + ' : ' + eur(billPrev, 0) + ' abonnement compris. Prix de votre contrat : ' + String(t).replace(".", ",") + ' €/kWh, abonnement ' + String(S.sub).replace(".", ",") + ' €/mois TTC. Part de la climatisation : estimation Mitsubishi rapportée à la mesure.</p>' +
       '</div>';
   }
 
@@ -625,8 +630,9 @@
     sheet('<h3>Réglages</h3>' +
       '<div class="fld"><span>Saison</span><div class="pick" id="ss">' + seasons.map(function (s) { return '<button data-s="' + s[0] + '" aria-pressed="' + (S.season === s[0]) + '">' + s[1] + '</button>'; }).join("") + '</div></div>' +
       '<p class="hint">Détermine ce que font les modes Maison, Nuit, Absent et Vacances. Actuellement : ' + (season() === "cool" ? "rafraîchissement" : "chauffage") + '.</p>' +
-      '<label class="fld"><span>Prix du kWh (€)</span><input id="tf" type="number" step="0.0001" inputmode="decimal" value="' + S.tariff + '"></label>' +
-      '<p class="hint">Tarif réglementé base : environ 0,2016 €.</p>' +
+      '<label class="fld"><span>Prix du kWh TTC (€)</span><input id="tf" type="number" step="0.0001" inputmode="decimal" value="' + S.tariff + '"></label>' +
+      '<label class="fld"><span>Abonnement TTC (€ par mois)</span><input id="sb" type="number" step="0.001" inputmode="decimal" value="' + S.sub + '"></label>' +
+      '<p class="hint">Valeurs de votre contrat Base. À modifier seulement si votre fournisseur change ses prix.</p>' +
       '<button class="lkrow" id="lk"><span><b>Compteur Linky</b><small>' + (S.linky && S.linky.linked ? "Relié, consommation réelle affichée" : "Non relié") + '</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</button>' +
       '<button class="cta" id="sv">Enregistrer</button>' +
       (DEMO ? '<a class="ghost" href="./">Quitter la démonstration</a>' : '<button class="ghost" id="lo">Se déconnecter</button>'), function (v) {
@@ -638,6 +644,7 @@
       });
       v.querySelector("#sv").addEventListener("click", function () {
         var x = parseFloat(String(v.querySelector("#tf").value).replace(",", ".")); if (x > 0) { S.tariff = x; put("tariff", String(x)); }
+        var y = parseFloat(String(v.querySelector("#sb").value).replace(",", ".")); if (y >= 0) { S.sub = y; put("sub", String(y)); }
         S.season = pick; put("season", pick); v.remove(); draw(); toast("Enregistré");
       });
       var l = v.querySelector("#lo"); if (l) l.addEventListener("click", function () { v.remove(); logout(); });
