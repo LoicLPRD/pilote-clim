@@ -76,7 +76,7 @@
   .card .cv.mini { width: 88px; height: 60px; flex: none; display: block; border-radius: 12px; background: var(--panel); }
   .card .cbody { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
   .card .nm { font-weight: 500; font-size: 1rem; }
-  .card .sm { color: var(--muted); font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .sm { color: var(--muted); font-size: .82rem; line-height: 1.3; }
   .card.on .sm { color: var(--fg); }
   .card.on .sm i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--cc); margin-right: 7px; vertical-align: 1px; }
   .card .ty { display: none; }
@@ -204,7 +204,7 @@
   .tlx { display: grid; grid-template-columns: 30px 1fr; gap: 8px; }
   .ax { display: flex; justify-content: space-between; font-size: .62rem; color: var(--dim); }
   .ax em { font-style: normal; }
-  .note2 { color: var(--dim); font-size: .76rem; line-height: 1.55; margin: 16px 0 0; }
+  .note2 { color: var(--muted); font-size: .76rem; line-height: 1.55; margin: 16px 0 0; }
   .elog { list-style: none; padding: 0; margin: 0; font-size: .8rem; color: var(--muted); }
   .elog li { padding: 10px 0; border-bottom: 1px solid var(--line); line-height: 1.4; }
   .elog time { display: block; font-size: .7rem; color: var(--dim); margin-bottom: 2px; }
@@ -254,6 +254,14 @@
   .setpoint .deg { font-size: clamp(28px, 7vw, 40px); font-weight: 300; }
   .setpoint .dec { font-size: clamp(24px, 6vw, 34px); font-weight: 300; color: var(--muted); }
   .room.off .setpoint { opacity: .35; }
+  .setlbl { margin: -4px 0 12px; font-size: .78rem; color: var(--muted); }
+  .lnk.tiny { display: block; margin-top: 12px; font-size: .78rem; color: var(--muted); font-weight: 400; text-decoration: underline; text-underline-offset: 3px; }
+  .pick.days button small { display: block; font-size: .58rem; margin-top: 3px; color: var(--muted); }
+  .pick.days button[data-s="w"] { background: var(--fg); color: var(--bg); } .pick.days button[data-s="w"] small { color: var(--bg); opacity: .7; }
+  .pick.days button[data-s="r"] { background: var(--blue); color: #fff; } .pick.days button[data-s="r"] small { color: #fff; opacity: .8; }
+  .leg i.d-w { background: var(--fg); } .leg i.d-r { background: var(--blue); } .leg i.d-h { background: var(--panel-2); }
+  .grid2 input[type="date"] { font: inherit; font-size: .95rem; color: var(--fg); background: var(--panel); border: 0; border-radius: 4px; height: 40px; padding: 0 10px; width: 100%; -webkit-appearance: none; }
+  .consv .cons { padding-top: 0; }
   .chip { font-size: .8rem; color: var(--fg); background: var(--panel); padding: 9px 16px; border-radius: 999px; margin: 2px 0 18px; }
 
   .pwr { width: 68px; height: 68px; border-radius: 50%; background: var(--panel); display: grid; place-items: center; color: var(--muted); transition: all .25s; }
@@ -304,7 +312,7 @@
   .ghost { width: 100%; height: 46px; border-radius: 4px; border: 2px solid var(--panel-2); color: var(--fg); font-weight: 500; font-size: .9rem; margin-top: 10px; }
   a.ghost { display: grid; place-items: center; text-decoration: none; }
   .err { color: var(--warn); font-size: .86rem; text-align: center; margin-top: 16px; min-height: 1.2em; }
-  .fine { color: var(--dim); font-size: .78rem; text-align: center; margin-top: 28px; line-height: 1.6; }
+  .fine { color: var(--muted); font-size: .78rem; text-align: center; margin-top: 28px; line-height: 1.6; }
   .demo-link { display: block; text-align: center; margin-top: 16px; color: var(--muted); font-size: .84rem; }
 
   /* Feuilles */
@@ -313,7 +321,7 @@
   @media (prefers-color-scheme: dark) { .sheet { background: #111113; } }
   @keyframes fade { from { opacity: 0; } } @keyframes up { from { transform: translateY(30px); opacity: 0; } }
   .sheet h3 { margin: 0 0 22px; font-weight: 500; font-size: 1.1rem; text-align: center; }
-  .sheet .hint { color: var(--dim); font-size: .8rem; margin: -6px 0 20px; line-height: 1.5; }
+  .sheet .hint { color: var(--muted); font-size: .8rem; margin: -6px 0 20px; line-height: 1.5; }
   .pick { display: flex; flex-wrap: wrap; gap: 6px; }
   .pick button { padding: 10px 14px; border-radius: 4px; background: var(--panel); color: var(--muted); font-size: .84rem; }
   .pick button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 500; }
@@ -322,7 +330,7 @@
   .step button svg { width: 20px; height: 20px; }
   .step b { font-weight: 300; font-size: 2.2rem; min-width: 3.2ch; text-align: center; }
 
-  .toast { position: fixed; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom,0px)); transform: translateX(-50%) translateY(10px); z-index: 50; background: var(--panel-2); color: var(--fg); font-size: .86rem; padding: 11px 18px; border-radius: 4px; opacity: 0; transition: all .25s; pointer-events: none; white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis; }
+  .toast { position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top,0px)); transform: translateX(-50%) translateY(-10px); z-index: 50; background: var(--panel-2); color: var(--fg); font-size: .86rem; padding: 11px 18px; border-radius: 4px; opacity: 0; transition: all .25s; pointer-events: none; white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   .loading { text-align: center; color: var(--muted); padding: 80px 0; font-size: .9rem; }
   @media (prefers-reduced-motion: reduce) { *, *::before { transition: none !important; animation: none !important; } }
@@ -331,8 +339,8 @@
 <body>
 <div id="app"></div>
 <div class="toast" id="toast"></div>
-<script src="prog.js?v=17"></script>
-<script src="split.js?v=17"></script>
-<script src="app.js?v=17"></script>
+<script src="prog.js?v=18"></script>
+<script src="split.js?v=18"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

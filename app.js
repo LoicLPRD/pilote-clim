@@ -12,7 +12,7 @@
     ["Heat", "Chaud", '<path d="M12 22c4 0 7-2.6 7-6.6 0-3.4-2.2-5.6-3.6-7.2-.4 1.7-1.5 2.8-2.6 3.2C13.4 8 12.6 4.6 9.8 2c0 3.6-4.8 6.4-4.8 12.4C5 19.4 8 22 12 22Z"/>'],
     ["Cool", "Froid", '<path d="M12 2v20M3.3 7l17.4 10M20.7 7 3.3 17M12 2 9 5M12 2l3 3M12 22l-3-3M12 22l3-3"/>'],
     ["Automatic", "Auto", '<path d="M5 19 10.5 5h3L19 19M7.4 13.5h9.2"/>'],
-    ["Dry", "Déshum.", '<path d="M12 3s6 6.3 6 11a6 6 0 0 1-12 0c0-4.7 6-11 6-11Z"/>'],
+    ["Dry", "Déshumid.", '<path d="M12 3s6 6.3 6 11a6 6 0 0 1-12 0c0-4.7 6-11 6-11Z"/>'],
     ["Fan", "Vent", '<path d="M12 12c0-4 1-8 4-8s3 4 0 6l-4 2Zm0 0c4 0 8 1 8 4s-4 3-6 0l-2-4Zm0 0c0 4-1 8-4 8s-3-4 0-6l4-2Zm0 0c-4 0-8-1-8-4s4-3 6 0l2 4Z"/>']
   ];
   var MODE_FR = {}; MODES.forEach(function (m) { MODE_FR[m[0]] = m[1]; });
@@ -268,7 +268,7 @@
       } else { ph.replaceWith(c.el); c.view.wake(); }
       var u = unitById(id); if (!u) return;
       c.view.set({ power: !!u.power && !u.in_error, effect: effect(u), fan: fanN(u), vv: getVane(u, "vv"), vh: getVane(u, "vh") });
-      c.el.setAttribute("aria-label", u.power ? "Flux d'air " + VV_FR[getVane(u, "vv")].toLowerCase() + ", " + VH_FR[getVane(u, "vh")].toLowerCase() : "Unité arrêtée");
+      c.el.setAttribute("aria-label", u.power ? "Flux d'air " + VV_FR[getVane(u, "vv")].toLowerCase() + ", " + VH_FR[getVane(u, "vh")].toLowerCase() : "Clim arrêtée");
     });
   }
 
@@ -284,7 +284,7 @@
         '<label class="fld"><span>Mot de passe</span><input id="pw" type="password" autocomplete="current-password" required></label>' +
         '<button class="cta" id="go" type="submit">Se connecter</button>' +
         '<p class="err" id="er">' + esc(msg || "") + '</p>' +
-        '<p class="fine">Votre mot de passe n’est jamais conservé.<br>Seul un jeton de session reste sur cet appareil.</p>' +
+        '<p class="fine">Votre mot de passe n’est jamais conservé.<br>Seule votre connexion reste mémorisée sur cet appareil.</p>' +
         '<a class="demo-link" href="?demo">Découvrir en démonstration</a>' +
       '</form>';
     var em = document.getElementById("em"), pw = document.getElementById("pw"), go = document.getElementById("go"), er = document.getElementById("er");
@@ -376,6 +376,7 @@
     var main = document.getElementById("main"); if (!main) return;
     if (!S.units.length) { main.innerHTML = S.offline ? offlineHTML() : '<div class="loading">Chargement</div>'; return; }
     if (S.view === "prog") { drawTopTitle("Programmation"); main.innerHTML = progHTML(); document.documentElement.style.setProperty("--acc", "var(--blue)"); return; }
+    if (S.view === "conso") { drawTopTitle("Consommation"); main.innerHTML = consoScreen(); document.documentElement.style.setProperty("--acc", "var(--blue)"); return; }
     var u = S.view !== "home" ? unitById(S.view) : null;
     if (!u) { S.view = "home"; drawTop(null); main.innerHTML = homeHTML(); document.documentElement.style.setProperty("--acc", "var(--blue)"); }
     else { drawTop(u); main.innerHTML = roomHTML(u); }
@@ -417,7 +418,7 @@
 
     var cards = S.units.map(function (u) {
       var r = room(u), ef = effect(u);
-      var st = u.in_error ? "Erreur unité" : u.connected === false ? "Hors ligne" : u.power ? (u.mode === "Automatic" ? "Auto · " : "") + (ef === "heat" ? "Chauffe" : ef === "cool" ? "Refroidit" : ef === "dry" ? "Déshum." : "Ventile") + " " + fmt(u.set_temperature) + "°" : "Arrêt";
+      var st = u.in_error ? "En erreur" : u.connected === false ? "Hors ligne" : u.power ? (u.mode === "Automatic" ? "Auto · " : "") + (ef === "heat" ? "Chauffe vers " + fmt(u.set_temperature) + "°" : ef === "cool" ? "Rafraîchit vers " + fmt(u.set_temperature) + "°" : ef === "dry" ? "Déshumidifie" : "Ventile") : "Arrêt";
       return '<div class="card' + (u.power ? " on" : "") + '" data-open="' + esc(u.id) + '" role="button" tabindex="0" style="--cc:' + EFFECT_C[ef] + '">' +
         '<div data-cv="mini:' + esc(u.id) + '"></div>' +
         '<span class="cbody"><span class="nm">' + esc(u.name) + '</span><span class="sm">' + (u.power ? "<i></i>" : "") + esc(st) + '</span>' +
@@ -433,8 +434,25 @@
       '<div class="qa" role="group" aria-label="Mode de la maison">' + seg + '</div>' +
       '<p class="segcap">' + cap + '</p>' + progRow() +
       '<div class="sh"><span>Pièces</span></div><div class="cards">' + cards + '</div>' +
-      '<div class="sh"><span>Consommation</span><small>' + (S.linky && S.linky.days ? "Linky mesuré" : "Estimation") + '</small></div>' + consoHTML() +
+      consoRow() +
       '</section>';
+  }
+  // Resume de la consommation sur l'accueil ; le detail est sur l'ecran Consommation.
+  function consoRow() {
+    var c = consumption(), L = S.linky, t = S.tariff, title, sub;
+    if (L && L.days && Object.keys(L.days).length) {
+      var m = monthFacts(c, L.days);
+      title = cap1(c.month) + " · " + eur(m.billCur);
+      sub = m.sentence;
+    } else if (c.have) {
+      title = cap1(c.month) + " · " + eur(c.cur * t) + " de climatisation";
+      sub = "Estimation Mitsubishi. Reliez le compteur Linky pour la consommation réelle de la maison.";
+    } else { title = "Consommation"; sub = "Lecture en cours…"; }
+    return '<button class="lkrow prow" data-conso><span><b>' + esc(title) + '</b><small>' + esc(sub) + '</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</button>';
+  }
+  function consoScreen() {
+    var mes = S.linky && S.linky.days && Object.keys(S.linky.days).length;
+    return '<section class="consv"><p class="segcap" style="margin:0 0 14px">' + (mes ? "Maison mesurée par le compteur Linky" : "Estimation fournie par Mitsubishi") + '</p>' + consoHTML() + '</section>';
   }
 
   function consoHTML() {
@@ -477,37 +495,43 @@
     }
     return { kwh: c.days[k] || 0, measured: false };
   }
-  // Consommation reelle (Linky) : maison mesuree, part de la climatisation sur les memes jours.
-  function linkyHTML(c, D) {
+  // Chiffres du mois en cours, communs a l'accueil et a l'ecran Consommation.
+  function monthFacts(c, D) {
     var t = S.tariff, now = new Date(), y = now.getFullYear(), mo = now.getMonth(), mk = iso(now).slice(0, 7);
-    var pk = iso(new Date(y, mo - 1, 1)).slice(0, 7);
-    var dim = new Date(y, mo + 1, 0).getDate();
-    // Toutes les valeurs du mois portent sur les memes jours : ceux deja mesures par le Linky.
+    var pk = iso(new Date(y, mo - 1, 1)).slice(0, 7), dim = new Date(y, mo + 1, 0).getDate();
     var days = Object.keys(D).filter(function (k) { return k.slice(0, 7) === mk; }).sort();
     var n = days.length, cur = 0, clim = 0, meas = 0, prev = 0, mitsu = 0;
     days.forEach(function (k) { var cd = climDay(k, c); cur += D[k]; clim += cd.kwh; mitsu += c.days[k] || 0; if (cd.measured) meas++; });
     Object.keys(D).forEach(function (k) { if (k.slice(0, 7) === pk) prev += D[k]; });
+    var proj = n >= 3 ? cur / n * dim : null;
+    var subCur = S.sub * n / dim, billCur = cur * t + subCur, billProj = proj == null ? null : proj * t + S.sub, billPrev = prev * t + S.sub;
+    var sentence;
+    if (billProj == null) sentence = "La projection du mois s’affiche après 3 jours mesurés.";
+    else if (prev > 0) {
+      var diff = billProj - billPrev;
+      sentence = "Au même rythme, " + c.month + " coûtera " + (Math.abs(diff) < 1 ? "autant qu’en " + c.pmonth : eur(Math.abs(diff), 0) + (diff < 0 ? " de moins" : " de plus") + " qu’en " + c.pmonth) + " (" + eur(billPrev, 0) + ").";
+    } else sentence = "Au même rythme, " + c.month + " coûtera environ " + eur(billProj, 0) + ".";
+    return { days: days, n: n, cur: cur, clim: clim, meas: meas, mitsu: mitsu, prev: prev, proj: proj, subCur: subCur, billCur: billCur, billProj: billProj, billPrev: billPrev, sentence: sentence, dim: dim, y: y, mo: mo, mk: mk };
+  }
+  function monthShort(d) { var m = d.toLocaleDateString("fr-FR", { month: "short" }); return m.length > 5 ? m.slice(0, 4).replace(/\.$/, "") + "." : m; }
+  // Consommation reelle (Linky) : maison mesuree, part de la climatisation sur les memes jours.
+  function linkyHTML(c, D) {
+    var t = S.tariff, now = new Date(), M = monthFacts(c, D);
+    var y = M.y, mo = M.mo, mk = M.mk, dim = M.dim, days = M.days, n = M.n, cur = M.cur, clim = M.clim, meas = M.meas, prev = M.prev, mitsu = M.mitsu;
     var rooms = S.units.map(function (u) {
       var v = 0; (S.energy[u.id] || []).forEach(function (e) { if (days.indexOf(e.d) >= 0) v += e.kwh; });
       return { u: u, kwh: v };
     });
     var scale = mitsu > 0 ? clim / mitsu : 0; // repartition de la part des clims entre les pieces
     rooms.forEach(function (r) { r.kwh = meas ? r.kwh * scale : r.kwh; });
-    var proj = n >= 3 ? cur / n * dim : null;
-    var subCur = S.sub * n / dim, billCur = cur * t + subCur, billProj = proj == null ? null : proj * t + S.sub, billPrev = prev * t + S.sub;
+    var proj = M.proj, subCur = M.subCur, billCur = M.billCur, billProj = M.billProj, billPrev = M.billPrev, sentence = M.sentence;
     var lastK = days[n - 1], lastTxt = lastK ? +lastK.slice(8, 10) + " " + c.month : "";
-    var sentence;
-    if (billProj == null) sentence = "La projection du mois s’affiche après 3 jours mesurés.";
-    else if (prev > 0) {
-      var diff = billProj - billPrev;
-      sentence = "Au même rythme, " + c.month + " coûtera " + (Math.abs(diff) < 1 ? "autant que " + c.pmonth : eur(Math.abs(diff), 0) + (diff < 0 ? " de moins" : " de plus") + " qu’" + (c.pmonth.charAt(0) === "a" || c.pmonth.charAt(0) === "o" ? "en " : "en ") + c.pmonth) + " (" + eur(billPrev, 0) + ").";
-    } else sentence = "Au même rythme, " + c.month + " coûtera environ " + eur(billProj, 0) + ".";
     // Graphique : un baton par jour du mois choisi (mois en cours par defaut), la part des clims en bleu.
     var first = Object.keys(D).sort()[0] || mk + "-01";
     var minOff = (+first.slice(0, 4) - y) * 12 + (+first.slice(5, 7) - 1 - mo);
     S.cmo = Math.max(minOff, Math.min(0, S.cmo));
     var cm = new Date(y, mo + S.cmo, 1), cmk = iso(cm).slice(0, 7), cdim = new Date(cm.getFullYear(), cm.getMonth() + 1, 0).getDate();
-    var cmName = MONTHS[cm.getMonth()], cmAbbr = cmName.length > 5 ? cmName.slice(0, cmName === "juillet" ? 5 : 4) + "." : cmName;
+    var cmName = MONTHS[cm.getMonth()], cmAbbr = monthShort(cm);
     var cdays = Object.keys(D).filter(function (k) { return k.slice(0, 7) === cmk; }).sort();
     var max = 0, mTot = 0, mClim = 0;
     cdays.forEach(function (k) { if (D[k] > max) max = D[k]; mTot += D[k]; mClim += climDay(k, c).kwh; });
@@ -552,6 +576,14 @@
         'La projection prolonge le rythme moyen des jours mesurés.</p></details>' +
       '</div>';
   }
+  // Cout d'une piece sur le mois en cours, recale sur la courbe Linky quand elle est disponible.
+  function roomMonthKwh(u) {
+    var c = consumption(), L = S.linky, v = 0;
+    if (!(L && L.days && Object.keys(L.days).length)) return c.per[u.id];
+    var M = monthFacts(c, L.days);
+    (S.energy[u.id] || []).forEach(function (e) { if (M.days.indexOf(e.d) >= 0) v += e.kwh; });
+    return M.meas && M.mitsu > 0 ? v * M.clim / M.mitsu : v;
+  }
   function dayTxt(k, kwh, clim) {
     var d = new Date(k + "T12:00:00");
     var s = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
@@ -564,9 +596,9 @@
     var ef = effect(u), r = room(u);
     document.documentElement.style.setProperty("--acc", u.power ? EFFECT_C[ef] : "var(--auto)");
     var sp = u.set_temperature, whole = sp == null ? "–" : String(Math.floor(sp)), half = sp != null && sp % 1 !== 0;
-    var status = u.in_error ? "<b>Erreur unité</b>" : u.connected === false ? "<b>Hors ligne</b>" :
+    var status = u.in_error ? "<b>Clim en erreur</b>" : u.connected === false ? "<b>Hors ligne</b>" :
       u.power ? "<b>" + (ef === "heat" ? "Chauffe" : ef === "cool" ? "Rafraîchit" : ef === "dry" ? "Déshumidifie" : "Ventile") + "</b> · pièce " + fmt(u.room_temperature) + "°" : "Arrêt · pièce " + fmt(u.room_temperature) + "°";
-    var c = consumption(), kwh = c.per[u.id];
+    var c = consumption(), kwh = roomMonthKwh(u);
     var target = season() === "cool" ? Math.max(24, r.comfort + 3) : r.comfort;
     var chip = u.power && sp != null && Math.abs(sp - target) >= 0.5
       ? '<button class="chip" data-comfort>Revenir au confort · ' + fmt(target) + '°</button>' : "";
@@ -587,27 +619,27 @@
       }).join("");
       return '<div class="vgrid">' + b + '</div><div class="vcap">' + name + '</div>';
     }
-    var modeCap = { Heat: "Chauffage vers la consigne.", Cool: "Rafraîchissement vers la consigne.", Automatic: "La clim choisit seule entre chaud et froid pour tenir la consigne.", Dry: "Assèche l’air, température peu modifiée.", Fan: "Brasse l’air, sans chauffer ni refroidir." }[u.mode] || "";
+    var modeCap = { Heat: "Chauffe jusqu’à la température demandée.", Cool: "Rafraîchit jusqu’à la température demandée.", Automatic: "Choisit seule entre chaud et froid pour tenir la température demandée.", Dry: "Assèche l’air, sans beaucoup changer la température.", Fan: "Brasse l’air, sans chauffer ni refroidir." }[u.mode] || "";
 
     return '<section class="room' + (u.power ? "" : " off") + '">' + (S.offline ? offlineHTML() : "") +
       '<p class="status">' + status + '</p>' + progLine(u) +
       '<div class="stage"><div data-cv="room:' + esc(u.id) + '"></div>' +
         '<div class="vp" id="vp">' + vaneCap(u.power, vv, vh) + '</div>' +
-        (u.power && !S.hinted ? '<div class="ghint" id="hint">Glissez le flux pour l’orienter · appui long : balayage</div>' : "") +
+        (u.power && (!S.hinted || Date.now() - +(get("hinted_at") || 0) > 7 * 864e5) ? '<div class="ghint" id="hint">Glissez le flux pour l’orienter · appui long : balayage</div>' : "") +
       '</div>' +
       '<div class="dial">' +
         '<button class="chev" data-step="-1" aria-label="Baisser">' + svg('<path d="m15 6-6 6 6 6"/>', 2) + '</button>' +
         '<div class="setpoint" aria-live="polite"><span class="num">' + whole + '</span><span class="side"><span class="deg">°</span><span class="dec">' + (half ? ",5" : "") + '</span></span></div>' +
         '<button class="chev" data-step="1" aria-label="Monter">' + svg('<path d="m9 6 6 6-6 6"/>', 2) + '</button>' +
-      '</div>' + chip +
+      '</div><p class="setlbl">Température demandée</p>' + chip +
       '<button class="pwr" data-power aria-pressed="' + !!u.power + '" aria-label="Marche / arrêt">' + svg('<path d="M12 3v9M6.5 7a8 8 0 1 0 11 0"/>', 1.8) + '</button>' +
       '<div class="pwrlbl">' + (u.power ? "En marche" : "Arrêt") + '</div>' +
       '<div class="lbl">Mode</div><div class="modes">' + modes + '</div><div class="vcap">' + modeCap + '</div>' +
       '<div class="lbl">Ventilation</div><div class="fans"><button class="fauto" data-fan="Auto" aria-pressed="' + (u.fan_speed === "Auto") + '">Auto</button><div class="fanlvl">' + bars + '</div></div>' +
       '<div class="lbl">Orientation haut / bas</div>' + grid(VV, "vv", vv) +
       '<div class="lbl">Orientation gauche / droite</div>' + grid(VH, "vh", vh) +
-      '<div class="meta"><span>Confort <b>' + fmt(r.comfort) + '°</b></span><span>Ce mois <b>' + (kwh != null ? eur(kwh * S.tariff) : "…") + '</b></span>' +
-        '<button class="lnk" data-roomset>Pièce</button></div>' +
+      '<div class="meta"><span>Confort <b>' + fmt(r.comfort) + '°</b></span><span>' + cap1(MONTHS[new Date().getMonth()]) + ' <b>' + (kwh != null ? eur(kwh * S.tariff) : "…") + '</b></span>' +
+        '<button class="lnk" data-roomset>Réglages de la pièce</button></div>' +
       '</section>';
   }
 
@@ -633,7 +665,7 @@
       send(u, changes, ch.vv ? "Volet : " + VV_FR[ch.vv].toLowerCase() : "Flux : " + VH_FR[ch.vh].toLowerCase());
     };
   }
-  function dismissHint() { if (!S.hinted) { S.hinted = true; put("hinted", "1"); var h = document.getElementById("hint"); if (h) h.remove(); } }
+  function dismissHint() { S.hinted = true; put("hinted", "1"); put("hinted_at", String(Date.now())); var h = document.getElementById("hint"); if (h) h.remove(); }
 
   // ---------- Interactions ----------
   function onMainClick(e) {
@@ -642,6 +674,7 @@
     if (b.hasAttribute("data-open")) { S.view = b.getAttribute("data-open"); put("view", S.view); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-house")) { pickHouse(b.getAttribute("data-house")); return; }
     if (S.view === "prog" && onProgClick(b)) return;
+    if (b.hasAttribute("data-conso")) { S.view = "conso"; put("view", "conso"); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-prog")) { S.view = "prog"; put("view", "prog"); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-settings")) { openSettings(); return; }
     if (b.hasAttribute("data-back")) { S.view = "home"; put("view", "home"); buzz(); draw(); window.scrollTo(0, 0); return; }
@@ -718,17 +751,18 @@
       sheet('<h3>Absent</h3><p class="hint" style="margin-top:0">' + (season() === "cool" ? "Clims arrêtées pendant votre absence." : "Chauffage abaissé de 3° partout.") + ' La maison reprend son programme à votre retour.</p>' +
         '<div class="opts2">' +
           '<button class="lkrow" data-u="' + back.getTime() + '"><span><b>Retour ' + (back.getDate() === new Date().getDate() ? "ce soir" : "demain") + '</b><small>' + fmtD(back) + '</small></span></button>' +
-          '<button class="lkrow" data-u="' + tomorrow.getTime() + '"><span><b>Retour le lendemain</b><small>' + fmtD(tomorrow) + '</small></span></button>' +
+          '<button class="lkrow" data-u="' + tomorrow.getTime() + '"><span><b>Après-demain</b><small>' + fmtD(tomorrow) + '</small></span></button>' +
           '<button class="lkrow" data-u=""><span><b>Sans date de retour</b><small>Choisissez Maison en rentrant</small></span></button>' +
         '</div>' +
-        '<label class="fld" style="margin-top:14px"><span>Ou retour le</span><input id="dt" type="datetime-local"></label>' +
+        '<div class="fld" style="margin-top:14px"><span>Ou retour le</span><div class="grid2"><input id="dt" type="date" min="' + iso(new Date()) + '" value="' + iso(new Date()) + '">' + timeSel(rh.back, 'id="dtt"') + '</div></div>' +
         '<button class="cta" id="okdt">Valider cette date</button>', function (v) {
         v.querySelector(".opts2").addEventListener("click", function (e) {
           var b = e.target.closest("button"); if (!b) return; v.remove();
           applyHouse("absent", b.getAttribute("data-u") ? +b.getAttribute("data-u") : null);
         });
         v.querySelector("#okdt").addEventListener("click", function () {
-          var x = new Date(v.querySelector("#dt").value); if (isNaN(x) || x.getTime() <= Date.now()) { toast("Choisissez une date à venir"); return; }
+          var tv = timeVal(v.querySelector("#dtt")), x = new Date(v.querySelector("#dt").value + "T" + tv + ":00");
+          if (isNaN(x) || x.getTime() <= Date.now()) { toast("Choisissez un moment à venir"); return; }
           v.remove(); applyHouse("absent", x.getTime());
         });
       });
@@ -772,7 +806,9 @@
   function allOff() {
     buzz(); hold(8000);
     var list = S.units.filter(function (u) { return u.power; }); if (!list.length) return;
-    list.forEach(function (u) { u.power = false; }); draw(); toast("Extinction…");
+    list.forEach(function (u) { u.power = false; });
+    if (S.house && S.house.k !== "maison") saveDoc({ house: { k: "maison", until: null } }); else draw();
+    toast("Extinction…");
     var fails = 0;
     (function next(i) {
       if (i >= list.length) { toast(fails ? fails + " pièce(s) en échec" : "Tout est éteint"); later(); return; }
@@ -828,14 +864,16 @@
     document.body.appendChild(v); onReady(v);
   }
   function openSettings() {
-    var seasons = [["auto", "Selon la saison"], ["heat", "Chauffage"], ["cool", "Rafraîchissement"]];
+    var seasons = [["auto", "Selon la saison"], ["heat", "Chauffe"], ["cool", "Rafraîchit"]];
+    function fr(x, d) { return String(x.toFixed(d)).replace(".", ","); }
     sheet('<h3>Réglages</h3>' +
-      '<div class="fld"><span>Saison</span><div class="pick" id="ss">' + seasons.map(function (s) { return '<button data-s="' + s[0] + '" aria-pressed="' + (S.season === s[0]) + '">' + s[1] + '</button>'; }).join("") + '</div></div>' +
-      '<p class="hint">Détermine ce que font les modes Maison, Nuit, Absent et Vacances. Actuellement : ' + (season() === "cool" ? "rafraîchissement" : "chauffage") + '.</p>' +
-      '<label class="fld"><span>Prix du kWh TTC (€)</span><input id="tf" type="number" step="0.0001" inputmode="decimal" value="' + S.tariff + '"></label>' +
-      '<label class="fld"><span>Abonnement TTC (€ par mois)</span><input id="sb" type="number" step="0.001" inputmode="decimal" value="' + S.sub + '"></label>' +
-      '<p class="hint">Valeurs de votre contrat Base. À modifier seulement si votre fournisseur change ses prix.</p>' +
-      '<button class="lkrow" id="lk"><span><b>Compteur Linky</b><small>' + (S.linky && S.linky.linked ? "Relié, consommation réelle affichée" : "Non relié") + '</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</button>' +
+      '<div class="fld"><span>En ce moment, la maison</span><div class="pick" id="ss">' + seasons.map(function (s) { return '<button data-s="' + s[0] + '" aria-pressed="' + (S.season === s[0]) + '">' + s[1] + '</button>'; }).join("") + '</div></div>' +
+      '<p class="hint">« Selon la saison » : chauffe d’octobre à mai, rafraîchit de juin à septembre. Actuellement : ' + (season() === "cool" ? "rafraîchit" : "chauffe") + '.</p>' +
+      '<div class="fld"><span>Votre contrat d’électricité</span><div class="grid2">' +
+        '<label class="fld half"><span>Prix du kWh (€ TTC)</span><input id="tf" type="text" inputmode="decimal" value="' + fr(S.tariff, 4) + '"></label>' +
+        '<label class="fld half"><span>Abonnement (€ par mois)</span><input id="sb" type="text" inputmode="decimal" value="' + fr(S.sub, 2) + '"></label></div></div>' +
+      '<p class="hint" style="margin-top:-8px">Sur votre facture. À modifier seulement si votre fournisseur change ses prix.</p>' +
+      '<button class="lkrow" id="lk"><span><b>Compteur Linky</b><small>' + (S.linky && S.linky.linked ? "Relié : la consommation réelle de la maison est affichée" : "Non relié : la consommation est estimée") + '</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</button>' +
       '<button class="cta" id="sv">Enregistrer</button>' +
       (DEMO ? '<a class="ghost" href="./">Quitter la démonstration</a>' : '<button class="ghost" id="lo">Se déconnecter</button>'), function (v) {
       var pick = S.season;
@@ -959,13 +997,13 @@
   }
   function progRow() {
     var p = prog(), sub;
-    if (!srvOn()) sub = S.server && S.server.status === "session expirée" ? "Pilotage automatique interrompu : session expirée, réactivez-le" : "Désactivée · le téléphone pilote seulement à la demande";
-    else if (S.server.last_tick && Date.now() - new Date(S.server.last_tick).getTime() > 20 * 60e3) sub = "Attention : aucun relevé du serveur depuis " + ago(S.server.last_tick).replace("à ", "") + ". Le service est peut-être en pause.";
+    if (!srvOn()) sub = S.server && S.server.status === "session expirée" ? "Programmes interrompus : connexion à réactiver" : "Programmes à activer · les clims ne changent que sur votre demande";
+    else if (S.server.last_tick && Date.now() - new Date(S.server.last_tick).getTime() > 20 * 60e3) sub = "Attention : aucun contrôle depuis " + ago(S.server.last_tick).replace("à ", "") + ". Le service est peut-être en pause.";
     else if (S.house && S.house.k !== "maison" && (!S.house.until || S.house.until > Date.now())) {
       var hh = HOUSE.filter(function (x) { return x.k === S.house.k; })[0];
       sub = (hh ? hh.n : "Mode") + " en cours" + (S.house.until ? " · reprise le " + new Date(S.house.until).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }) + " à " + hm(S.house.until) : "");
     }
-    else if (!p.enabled) sub = "Pilotage automatique actif, programmes en pause";
+    else if (!p.enabled) sub = "Programmes en pause · les clims ne changent que sur votre demande";
     else {
       var n = nextStep();
       sub = n ? "Prochaine étape " + (n.n.inDays ? DOW[((nowP().dow - 1 + n.n.inDays) % 7)].toLowerCase() + ". " : "") + n.n.t + " · " + n.u.name + " en " + Prog.STATES[n.n.s].toLowerCase() : "Programmes actifs";
@@ -984,7 +1022,7 @@
       txt = match ? "Programme · " + Prog.STATES[t.state].toLowerCase() + " " + stLabel(t, u) + (n ? " jusqu’à " + n.t : "")
         : "Réglage manuel" + (n ? " · le programme reprend à " + n.t : "");
     }
-    if (!srvOn()) txt += " · pilotage automatique inactif";
+    if (!srvOn() && t.why === "Programme") txt = "Programme non appliqué : activez les programmes";
     return '<p class="pline">' + esc(txt) + '</p>';
   }
   function bar(days, d) {
@@ -997,40 +1035,45 @@
   }
   function progHTML() {
     var p = prog(), r = Prog.rhythm(p.rhythm), today = nowP().dow;
-    var srv = srvOn()
-      ? '<div class="pcard"><div class="prow2"><span><b>Pilotage automatique</b><small>' + esc(S.server.status === "actif" ? "Actif · dernier relevé " + ago(S.server.last_tick) : "Attention : " + (S.server.status || "état inconnu")) + '</small></span>' +
-        '<button class="sw on" data-srv aria-label="Désactiver le pilotage automatique"><i></i></button></div></div>'
-      : '<div class="pcard"><div class="prow2"><span><b>Pilotage automatique</b><small>Inactif. Le serveur applique les modes et les programmes toutes les 5 minutes, téléphone éteint.</small></span>' +
-        '<button class="sw" data-srv aria-label="Activer le pilotage automatique"><i></i></button></div></div>';
-    var en = '<div class="pcard"><div class="prow2"><span><b>Programmes</b><small>' + (p.enabled ? "Actifs : chaque pièce suit son programme." : "En pause : les clims ne changent que sur votre demande.") + '</small></span>' +
-      '<button class="sw' + (p.enabled ? " on" : "") + '" data-pen aria-label="Programmes"><i></i></button></div></div>';
-    var work = r.work.map(function (d) { return DOW[d - 1].toLowerCase(); }).join(", ");
-    var rem = r.remote.length ? " · télétravail " + r.remote.map(function (d) { return DOW[d - 1].toLowerCase(); }).join(", ") : "";
-    var rh = '<div class="pcard"><div class="prow2"><span><b>Mon rythme</b><small>Semaine : lever ' + r.wake_wd + ', coucher ' + r.sleep_wd + '. Week-end : lever ' + r.wake_we + ', coucher ' + r.sleep_we + '. Absents de ' + r.leave + ' à ' + r.back + ' (' + esc(work) + ')' + esc(rem) + '.</small></span>' +
+    // Un seul interrupteur. Trois etats : actifs, en pause, a activer (installation faite une fois).
+    var on = srvOn() && p.enabled, warn = srvOn() && S.server.last_tick && Date.now() - new Date(S.server.last_tick).getTime() > 20 * 60e3;
+    var sub = !srvOn() ? (S.server && S.server.status === "session expirée" ? "Interrompus : la connexion du serveur a expiré. Réactivez-les." : "À activer. Une fois activés, les programmes tournent même téléphone éteint.")
+      : !p.enabled ? "En pause : les clims ne changent que sur votre demande."
+      : warn ? "Attention : aucun contrôle depuis " + ago(S.server.last_tick).replace("à ", "") + ". Le service est peut-être en pause."
+      : "Actifs · dernier contrôle " + ago(S.server.last_tick) + ".";
+    var en = '<div class="pcard"><div class="prow2"><span><b>Programmes</b><small>' + esc(sub) + '</small></span>' +
+      '<button class="sw' + (on ? " on" : "") + '" data-pen aria-label="Programmes" aria-pressed="' + on + '"><i></i></button></div>' +
+      (srvOn() ? '<button class="lnk tiny" data-srv>Déconnecter le serveur</button>' : "") + '</div>';
+    var srv = "";
+    var work = r.work.filter(function (d) { return r.remote.indexOf(d) < 0; }).map(function (d) { return DOW[d - 1].toLowerCase(); }).join(", ");
+    var rem = r.remote.length ? " Télétravail " + r.remote.map(function (d) { return DOW[d - 1].toLowerCase(); }).join(", ") + "." : "";
+    var rh = '<div class="pcard"><div class="prow2"><span><b>Mon rythme</b><small>Semaine : lever ' + r.wake_wd + ', coucher ' + r.sleep_wd + '. Week-end : lever ' + r.wake_we + ', coucher ' + r.sleep_we + '. Au travail de ' + r.leave + ' à ' + r.back + (work ? " (" + esc(work) + ")" : "") + '.' + esc(rem) + '</small></span>' +
       '<button class="lnk" data-rhythm>Modifier</button></div></div>';
     var rooms = S.units.map(function (u) {
       var d = docNow(), days = Prog.daysOf(d, u), rm = room(u), custom = !!((p.custom || {})[u.id]);
       var rows = "";
       for (var k = 1; k <= 7; k++) rows += '<div class="tlr' + (k === today ? " today" : "") + '"><span>' + DOW[k - 1] + '</span>' + bar(days, k) + '</div>';
+      var why = !custom && rm.type === "bureau" ? (r.remote.length ? " · chauffé les jours de télétravail" : " · chauffé les jours de télétravail, aucun dans Mon rythme") : "";
       return '<button class="pcard proom" data-rprog="' + esc(u.id) + '"><div class="prow2"><span><b>' + esc(u.name) + '</b><small>' +
-        esc(TYPES.filter(function (t) { return t[0] === rm.type; })[0][1]) + ' · confort ' + fmt(rm.comfort) + '°' + (custom ? " · personnalisé" : " · selon mon rythme") + '</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</div>' +
+        esc(TYPES.filter(function (t) { return t[0] === rm.type; })[0][1]) + ' · confort ' + fmt(rm.comfort) + '°' + (custom ? " · personnalisé" : " · selon mon rythme") + esc(why) + '</small></span>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</div>' +
         '<div class="tls">' + rows + '<div class="tlx"><span></span><span class="ax"><em>0h</em><em>6h</em><em>12h</em><em>18h</em><em>24h</em></span></div></div></button>';
     }).join("");
-    var legend = '<div class="leg"><span><i style="background:' + ST_C.confort + '"></i>Confort</span><span><i style="background:' + ST_C.eco + '"></i>Éco (−2°)</span><span><i style="background:' + ST_C.off + '"></i>Arrêt</span></div>';
+    var cool = season() === "cool";
+    var legend = '<div class="leg"><span><i style="background:' + ST_C.confort + '"></i>Confort</span><span><i style="background:' + ST_C.eco + '"></i>' + (cool ? "Éco (arrêt)" : "Éco (−2°)") + '</span><span><i style="background:' + ST_C.off + '"></i>Arrêt</span></div>';
     var logs = (S.elog || []).slice(0, 12).map(function (l) {
       var u = unitById(l.unit_id);
       return '<li><time>' + new Date(l.ts).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) + ' ' + hm(l.ts) + '</time>' + (u ? esc(u.name) + " · " : "") + esc(l.text) + '</li>';
     }).join("");
     return '<section class="progv">' + srv + en + rh +
       '<div class="sh"><span>Programmes par pièce</span></div>' + legend + rooms +
-      '<p class="note2">En hiver, Confort chauffe à la température de la pièce et Éco l’abaisse de 2°. En été, Confort rafraîchit à 24° au moins et Éco arrête la clim. Les périodes de confort démarrent 30 minutes à l’avance. Un réglage fait à la main reste en place jusqu’à l’étape suivante.</p>' +
-      (logs ? '<div class="sh"><span>Journal du moteur</span></div><ul class="elog">' + logs + '</ul>' : "") +
+      '<p class="note2">' + (cool ? "En été, Confort rafraîchit à 24° au moins et Éco arrête la clim." : "En hiver, Confort chauffe à la température de confort de la pièce et Éco l’abaisse de 2°.") + ' Les périodes de confort démarrent 30 minutes à l’avance. Un réglage fait à la main reste en place jusqu’à l’étape suivante.</p>' +
+      (logs ? '<div class="sh"><span>Dernières actions</span></div><ul class="elog">' + logs + '</ul>' : "") +
       '</section>';
   }
 
   function onProgClick(b) {
     if (b.hasAttribute("data-pen")) {
-      if (!srvOn() && !prog().enabled) toast("Activez aussi le pilotage automatique pour que les programmes tournent téléphone éteint");
+      if (!srvOn()) { openServer(); return true; }
       saveDoc({ program: { enabled: !prog().enabled } }, prog().enabled ? "Programmes en pause" : "Programmes actifs");
       return true;
     }
@@ -1050,6 +1093,13 @@
     return '<span class="tsel" ' + (attrs || "") + '><select data-h aria-label="Heure"' + dis + '>' + o + '</select><b>:</b><select data-mi aria-label="Minutes"' + dis + '>' + o2 + '</select></span>';
   }
   function timeVal(el) { return Prog.hhmm(+el.querySelector("[data-h]").value * 60 + +el.querySelector("[data-mi]").value); }
+  var DSTATE = { w: "Travail", r: "Télétrav.", h: "Maison" };
+  function dayStates(r) {
+    return '<div class="pick days" id="ds">' + DOW.map(function (d, i) {
+      var st = r.remote.indexOf(i + 1) >= 0 ? "r" : r.work.indexOf(i + 1) >= 0 ? "w" : "h";
+      return '<button data-d="' + (i + 1) + '" data-s="' + st + '">' + d + '<small>' + DSTATE[st] + '</small></button>';
+    }).join("") + '</div>';
+  }
   function chips(id, sel) {
     return '<div class="pick days" id="' + id + '">' + DOW.map(function (d, i) { return '<button data-d="' + (i + 1) + '" aria-pressed="' + (sel.indexOf(i + 1) >= 0) + '">' + d + '</button>'; }).join("") + '</div>';
   }
@@ -1061,17 +1111,21 @@
       '<p class="hint" style="margin-top:0">Cinq réponses suffisent : les programmes de toutes les pièces en sont déduits.</p>' +
       '<div class="grid2">' + t("wake_wd", "Lever en semaine", r.wake_wd) + t("sleep_wd", "Coucher en semaine", r.sleep_wd) + t("wake_we", "Lever le week-end", r.wake_we) + t("sleep_we", "Coucher le week-end", r.sleep_we) +
       t("leave", "Départ de la maison", r.leave) + t("back", "Retour à la maison", r.back) + '</div>' +
-      '<div class="fld"><span>Jours où vous partez travailler</span>' + chips("wk", r.work) + '</div>' +
-      '<div class="fld"><span>Jours de télétravail</span>' + chips("rm", r.remote) + '</div>' +
+      '<div class="fld"><span>Vos journées (touchez pour changer)</span>' + dayStates(r) + '</div>' +
+      '<div class="leg"><span><i class="d-w"></i>Au travail</span><span><i class="d-r"></i>Télétravail</span><span><i class="d-h"></i>À la maison</span></div>' +
       '<button class="cta" id="sv">Enregistrer</button>', function (v) {
       v.addEventListener("click", function (e) {
         var b = e.target.closest(".days button"); if (!b) return;
-        b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
+        var cyc = { w: "r", r: "h", h: "w" }, nx = cyc[b.getAttribute("data-s")];
+        b.setAttribute("data-s", nx); b.querySelector("small").textContent = DSTATE[nx]; buzz();
       });
       v.querySelector("#sv").addEventListener("click", function () {
-        var nr = {};
+        var nr = { work: [], remote: [] };
         ["wake_wd", "sleep_wd", "wake_we", "sleep_we", "leave", "back"].forEach(function (k) { nr[k] = timeVal(v.querySelector("#" + k)); });
-        nr.work = chipVals(v, "wk"); nr.remote = chipVals(v, "rm");
+        Array.prototype.forEach.call(v.querySelectorAll(".days button"), function (b) {
+          var d = +b.getAttribute("data-d"), st = b.getAttribute("data-s");
+          if (st === "w") nr.work.push(d); else if (st === "r") nr.remote.push(d);
+        });
         v.remove(); saveDoc({ program: { rhythm: nr } }, "Rythme enregistré");
       });
     });
@@ -1130,8 +1184,8 @@
 
   // Liaison de la session dediee au serveur : le mot de passe ne sert qu'une fois et n'est conserve nulle part.
   function openServer() {
-    sheet('<h3>Pilotage automatique</h3>' +
-      '<p class="hint" style="margin-top:0">Le serveur ouvre sa propre session MELCloud pour appliquer vos modes et programmes toutes les 5 minutes, téléphone éteint. Saisissez une dernière fois votre mot de passe : il n’est conservé nulle part, seule la session chiffrée l’est.</p>' +
+    sheet('<h3>Activer les programmes</h3>' +
+      '<p class="hint" style="margin-top:0">Étape faite une seule fois. Pour appliquer vos programmes même téléphone éteint, le serveur ouvre sa propre connexion à MELCloud. Saisissez une dernière fois votre mot de passe : il n’est conservé nulle part.</p>' +
       '<label class="fld"><span>E-mail MELCloud</span><input id="se" type="email" autocomplete="username" value="' + esc(S.email || "") + '"></label>' +
       '<label class="fld"><span>Mot de passe</span><input id="sp" type="password" autocomplete="current-password"></label>' +
       '<button class="cta" id="go">Activer</button><p class="err" id="er"></p>', function (v) {
@@ -1153,7 +1207,9 @@
           S.fails = 0; put("fails", "0");
           return api("link", { server: d.token }, FN_ENGINE);
         }).then(function () {
-          v.remove(); toast("Pilotage automatique activé");
+          v.remove(); toast("Programmes activés");
+          return saveDoc({ program: { enabled: true } });
+        }).then(function () {
           api("run", {}, FN_ENGINE).catch(function () {}).then(loadEngine);
         }).catch(function (e) {
           pw.value = "";
@@ -1169,17 +1225,29 @@
     });
   }
   function unlinkServer() {
-    sheet('<h3>Désactiver le pilotage automatique ?</h3><p class="hint" style="margin-top:0">Les modes et programmes ne seront plus appliqués téléphone éteint. Vos réglages sont conservés.</p>' +
-      '<button class="cta" id="ok">Désactiver</button><button class="ghost" id="no">Annuler</button>', function (v) {
+    sheet('<h3>Déconnecter le serveur ?</h3><p class="hint" style="margin-top:0">Les programmes et les modes ne seront plus appliqués téléphone éteint. Vos réglages sont conservés ; vous pourrez réactiver les programmes en ressaisissant votre mot de passe.</p>' +
+      '<button class="cta" id="ok">Déconnecter</button><button class="ghost" id="no">Annuler</button>', function (v) {
       v.querySelector("#no").addEventListener("click", function () { v.remove(); });
       v.querySelector("#ok").addEventListener("click", function () {
-        v.remove(); api("unlink", {}, FN_ENGINE).then(function () { toast("Pilotage automatique désactivé"); loadEngine(); }).catch(function () { toast("Opération impossible"); });
+        v.remove(); api("unlink", {}, FN_ENGINE).then(function () { toast("Serveur déconnecté"); loadEngine(); }).catch(function () { toast("Opération impossible"); });
       });
     });
   }
 
   // ---------- Installation ----------
-  if ("serviceWorker" in navigator && !DEMO) { window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); }); }
+  // Mises a jour : verification a chaque ouverture, rechargement automatique une fois la nouvelle version active.
+  if ("serviceWorker" in navigator && !DEMO) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(function (reg) { reg.update && reg.update(); }).catch(function () {});
+    });
+    var hadCtrl = !!navigator.serviceWorker.controller, reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (!hadCtrl || reloaded) return; reloaded = true; location.reload();
+    });
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) navigator.serviceWorker.getRegistration().then(function (r) { if (r) r.update(); }).catch(function () {});
+    });
+  }
 
   if (DEMO || S.access || S.refresh) renderApp(); else renderLogin();
 })();
