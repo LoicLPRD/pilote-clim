@@ -32,13 +32,14 @@ var Prog = (function () {
     r = rhythm(r);
     var days = {};
     for (var d = 1; d <= 7; d++) {
-      var we = d >= 6, works = r.work.indexOf(d) >= 0 && !we, remote = r.remote.indexOf(d) >= 0;
-      var wake = m(we ? r.wake_we : r.wake_wd), sleep = m(we ? r.sleep_we : r.sleep_wd);
-      var leave = m(r.leave), back = m(r.back), away = works && !remote;
+      var we = d >= 6, remote = r.remote.indexOf(d) >= 0, works = r.work.indexOf(d) >= 0 && !we && !remote;
+      // Lever selon le jour ; coucher selon la soiree (vendredi et samedi soir : horaires du week-end).
+      var wake = m(we ? r.wake_we : r.wake_wd), sleep = m(d === 5 || d === 6 ? r.sleep_we : r.sleep_wd);
+      var leave = m(r.leave), back = m(r.back), away = works && back - PRE > leave;
       if (type === "chambre") {
         days[d] = day("confort", [[wake + 30, "eco"], [sleep - 60, "confort"]]);
       } else if (type === "bureau") {
-        days[d] = works && remote ? day("off", [[leave - PRE, "confort"], [back, "off"]]) : day("off", []);
+        days[d] = remote && back > leave ? day("off", [[leave - PRE, "confort"], [back, "off"]]) : day("off", []);
       } else {
         days[d] = away
           ? day("eco", [[wake - PRE, "confort"], [leave, "eco"], [back - PRE, "confort"], [sleep, "eco"]])
@@ -107,6 +108,8 @@ var Prog = (function () {
       var p = stateAt(daysOf(doc, unit), now.dow, now.min);
       st = p.s; why = "Programme";
     }
+    // Fin d'une absence, de vacances ou d'une nuit sans programme actif : retour au confort, une seule fois.
+    else if (h.k === "maison" && h.resume && now.ms < h.resume) { st = "confort"; why = "Retour"; }
     if (!st) return null;
     var t = setting(st, r.comfort, sea);
     t.key = key(t); t.state = st; t.why = why;

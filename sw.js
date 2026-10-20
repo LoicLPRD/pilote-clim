@@ -1,5 +1,5 @@
 // Cache de l'interface uniquement. Les appels au serveur ne sont jamais mis en cache.
-var CACHE = "pilote-clim-v12";
+var CACHE = "pilote-clim-v13";
 var SHELL = ["./", "index.html", "app.js", "split.js", "prog.js", "manifest.json", "icon-180.png", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", function (e) {
@@ -13,8 +13,26 @@ self.addEventListener("activate", function (e) {
 self.addEventListener("fetch", function (e) {
   var req = e.request;
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
-  // Reseau d'abord (mises a jour immediates), cache en secours hors ligne.
-  e.respondWith(fetch(req).then(function (res) {
-    var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(req, copy); }); return res;
-  }).catch(function () { return caches.match(req).then(function (r) { return r || caches.match("index.html"); }); }));
+  // Reseau d'abord (mises a jour immediates), cache en secours hors ligne ou si le reseau tarde plus de 4 s.
+  e.respondWith(new Promise(function (resolve) {
+    var done = false;
+    function fallback() {
+      caches.match(req, { ignoreSearch: true }).then(function (r) {
+        if (done) return;
+        if (r) { done = true; resolve(r); }
+      });
+    }
+    var t = setTimeout(fallback, 4000);
+    fetch(req).then(function (res) {
+      clearTimeout(t);
+      if (res && res.ok) { var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(req, copy); }); }
+      if (!done) { done = true; resolve(res); }
+    }).catch(function () {
+      clearTimeout(t);
+      caches.match(req, { ignoreSearch: true }).then(function (r) {
+        if (done) return; done = true;
+        resolve(r || (req.mode === "navigate" ? caches.match("index.html") : new Response("", { status: 504 })));
+      });
+    });
+  }));
 });

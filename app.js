@@ -48,13 +48,14 @@
   function get(k) { try { var v = localStorage.getItem("pc_" + k); if (v !== null) return v; } catch (e) {} return mem[k] != null ? mem[k] : null; }
   function getJ(k, d) { try { return JSON.parse(get(k)) || d; } catch (e) { return d; } }
 
+  var DK = DEMO ? "demo_" : ""; // la demonstration n'ecrase jamais les reglages reels
   var S = {
     email: get("email"), access: get("access"), refresh: get("refresh"), expiry: +(get("expiry") || 0),
-    tariff: parseFloat(get("tariff") && get("tariff") !== "0.2016" ? get("tariff") : "0.1923"),
-    sub: parseFloat(get("sub") || "16.811"),
+    tariff: parseFloat(get(DK + "tariff") && get(DK + "tariff") !== "0.2016" ? get(DK + "tariff") : "0.1923"),
+    sub: parseFloat(get(DK + "sub") || "16.811"),
     fails: +(get("fails") || 0), lockUntil: +(get("lockUntil") || 0),
     units: [], view: get("view") || "home", energy: {}, busyUntil: 0,
-    rooms: getJ("rooms", {}), season: get("season") || "auto", house: getJ("house", null),
+    rooms: getJ("rooms", {}), season: get(DK + "season") || "auto", house: getJ("house", null),
     hinted: get("hinted") === "1", linky: null,
     doc: getJ(DEMO ? "demo_doc" : "doc", {}), server: null, elog: [], clim: [], view2: null
   };
@@ -65,9 +66,9 @@
     if (!d) return;
     S.doc = d; put(DEMO ? "demo_doc" : "doc", JSON.stringify(d));
     if (d.rooms) { S.rooms = d.rooms; saveRooms(); }
-    if (d.tariff) { S.tariff = d.tariff; put("tariff", String(d.tariff)); }
-    if (d.sub != null) { S.sub = d.sub; put("sub", String(d.sub)); }
-    if (d.season) { S.season = d.season; put("season", d.season); }
+    if (d.tariff) { S.tariff = d.tariff; put(DK + "tariff", String(d.tariff)); }
+    if (d.sub != null) { S.sub = d.sub; put(DK + "sub", String(d.sub)); }
+    if (d.season) { S.season = d.season; put(DK + "season", d.season); }
     if (d.house) { S.house = d.house; put(DEMO ? "demo_house" : "house", JSON.stringify(d.house)); }
   }
   function mergeLocal(doc, p) {
@@ -116,20 +117,37 @@
   }
 
   // ---------- Serveur ----------
-  function api(action, extra, fn, raw) {
-    if (DEMO) return demoApi(action, extra || {}, fn);
-    var body = Object.assign({ action: action }, extra || {});
-    var isLogin = !!(extra && extra.password);
-    if (!isLogin) {
-      if (S.access && Date.now() < S.expiry - 60000) body.token = S.access;
-      else if (S.refresh) body.refresh = S.refresh;
-    }
-    return fetch(fn || FN, {
+  function post(fn, body) {
+    return fetch(fn, {
       method: "POST",
       headers: { "Content-Type": "application/json", "apikey": KEY, "Authorization": "Bearer " + KEY },
       body: JSON.stringify(body)
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, d: d || {} }; });
+    });
+  }
+  // Un seul renouvellement de session a la fois : les jetons MELCloud ne servent qu'une fois.
+  var refreshing = null;
+  function ensureFresh() {
+    if ((S.access && Date.now() < S.expiry - 60000) || !S.refresh) return Promise.resolve();
+    if (!refreshing) {
+      refreshing = post(FN, { action: "list", refresh: S.refresh }).then(function (res) {
+        if (res.d.token) saveTokens(res.d.token);
+        if (res.status === 401 || res.d.needLogin) { var e = new Error("session"); e.needLogin = true; throw e; }
+      }).then(function () { refreshing = null; }, function (e) { refreshing = null; throw e; });
+    }
+    return refreshing;
+  }
+  function api(action, extra, fn, raw) {
+    if (DEMO) return demoApi(action, extra || {}, fn);
+    var isLogin = !!(extra && extra.password);
+    return (isLogin ? Promise.resolve() : ensureFresh()).then(function () {
+      var body = Object.assign({ action: action }, extra || {});
+      if (!isLogin) {
+        if (S.access && Date.now() < S.expiry - 60000) body.token = S.access;
+        else if (S.refresh) body.refresh = S.refresh;
+      }
+      return post(fn || FN, body);
     }).then(function (res) {
       if (res.d.token && !raw) saveTokens(res.d.token);
       if (!isLogin && (res.status === 401 || res.d.needLogin)) { var e = new Error("session"); e.needLogin = true; throw e; }
@@ -137,6 +155,7 @@
       return res.d;
     });
   }
+
 
   // ---------- Demonstration : donnees simulees, aucune clim pilotee ----------
   var DU = [
@@ -459,10 +478,10 @@
       if (k.slice(0, 7) === mk) { var cd = climDay(k, c); cur += D[k]; n++; clim += cd.kwh; if (cd.measured) meas++; }
       else if (k.slice(0, 7) === pk) prev += D[k];
     });
-    var proj = n ? cur / n * dim : 0;
+    var proj = n >= 3 ? cur / n * dim : null;
     // Facture estimee : energie mesuree + abonnement au prorata des jours mesures.
-    var subCur = S.sub * n / dim, billCur = cur * t + subCur, billProj = proj * t + S.sub, billPrev = prev * t + S.sub;
-    var delta = prev > 0 && n ? (billProj - billPrev) / billPrev * 100 : null;
+    var subCur = S.sub * n / dim, billCur = cur * t + subCur, billProj = proj == null ? null : proj * t + S.sub, billPrev = prev * t + S.sub;
+    var delta = prev > 0 && billProj != null ? (billProj - billPrev) / billPrev * 100 : null;
     var share = cur > 0 ? Math.min(100, clim / cur * 100) : 0, other = Math.max(0, cur - clim);
     var keys = Object.keys(D).sort().slice(-30), max = 0;
     keys.forEach(function (k) { if (D[k] > max) max = D[k]; });
@@ -474,7 +493,7 @@
     var lastK = keys[keys.length - 1];
     return '<div class="cons lk">' +
       '<div class="ch"><div><div class="cm">Facture · ' + c.month + ' à ce jour</div><div class="eur">' + eur(billCur) + '</div></div>' +
-      '<div class="pj"><div class="cm">Projection fin de mois</div><div class="pv">' + eur(billProj, 0) + '</div>' + dl + '</div></div>' +
+      '<div class="pj"><div class="cm">Projection fin de mois</div><div class="pv">' + (billProj == null ? "dès 3 jours" : eur(billProj, 0)) + '</div>' + dl + '</div></div>' +
       '<p class="bk">Électricité ' + eur(cur * t) + ' · abonnement ' + eur(subCur) + '</p>' +
       '<div class="mix"><div><span class="sw cl"></span>Climatisation<b>' + eurS(clim * t) + '</b><small>' + fmt(clim) + ' kWh · ' + (share > 0 && share < 1 ? "moins de 1" : Math.round(share)) + ' %</small></div>' +
       '<div><span class="sw ot"></span>Autres usages<b>' + eurS(other * t) + '</b><small>' + fmt(other) + ' kWh · ' + Math.round(100 - share) + ' %</small></div></div>' +
@@ -621,9 +640,12 @@
     if (k === "nuit") {
       var r = Prog.rhythm(S.doc && S.doc.program && S.doc.program.rhythm), d = new Date(), n = new Date(d);
       n.setDate(d.getDate() + (d.getHours() >= 12 ? 1 : 0));
-      var we = n.getDay() === 0 || n.getDay() === 6, w = Prog.m(we ? r.wake_we : r.wake_wd);
-      n.setHours(Math.floor(w / 60), w % 60, 0, 0);
-      if (n.getTime() <= Date.now()) n.setDate(n.getDate() + 1);
+      for (var guard = 0; guard < 3; guard++) {
+        var we = n.getDay() === 0 || n.getDay() === 6, w = Prog.m(we ? r.wake_we : r.wake_wd);
+        n.setHours(Math.floor(w / 60), w % 60, 0, 0);
+        if (n.getTime() > Date.now()) break;
+        n.setDate(n.getDate() + 1);
+      }
       return applyHouse("nuit", n.getTime());
     }
     var rh = Prog.rhythm(S.doc && S.doc.program && S.doc.program.rhythm);
@@ -677,7 +699,11 @@
     draw(); toast(h.n + "…");
     var fails = 0;
     (function next(i) {
-      if (i >= plan.length) { toast(fails ? h.n + " · " + fails + " pièce(s) en échec" : h.n + " appliqué"); later(); return; }
+      if (i >= plan.length) {
+        toast(fails ? h.n + " · " + fails + " pièce(s) en échec" : h.n + " appliqué"); later();
+        if (srvOn()) api("run", {}, FN_ENGINE).then(loadEngine).catch(function () {});
+        return;
+      }
       api("control", { unit_id: plan[i].u.id, changes: plan[i].c }).then(function () { next(i + 1); }).catch(function () { fails++; next(i + 1); });
     })(0);
   }
@@ -725,7 +751,7 @@
   var engT;
   function startAuto() {
     stopAuto(); autoT = setInterval(function () { if (!document.hidden) refresh(); }, 12000);
-    engT = setInterval(function () { if (!document.hidden && !document.querySelector(".veil")) loadEngine(); }, 60000);
+    engT = setInterval(function () { if (!document.hidden && !document.querySelector(".veil")) loadEngine(); }, 61000);
     document.addEventListener("visibilitychange", onVis);
   }
   function stopAuto() { clearInterval(autoT); clearInterval(engT); document.removeEventListener("visibilitychange", onVis); }
@@ -756,9 +782,9 @@
         Array.prototype.forEach.call(v.querySelectorAll("#ss button"), function (x) { x.setAttribute("aria-pressed", x === b); });
       });
       v.querySelector("#sv").addEventListener("click", function () {
-        var x = parseFloat(String(v.querySelector("#tf").value).replace(",", ".")); if (x > 0) { S.tariff = x; put("tariff", String(x)); }
-        var y = parseFloat(String(v.querySelector("#sb").value).replace(",", ".")); if (y >= 0) { S.sub = y; put("sub", String(y)); }
-        S.season = pick; put("season", pick); v.remove(); draw();
+        var x = parseFloat(String(v.querySelector("#tf").value).replace(",", ".")); if (x > 0) { S.tariff = x; put(DK + "tariff", String(x)); }
+        var y = parseFloat(String(v.querySelector("#sb").value).replace(",", ".")); if (y >= 0) { S.sub = y; put(DK + "sub", String(y)); }
+        S.season = pick; put(DK + "season", pick); v.remove(); draw();
         saveDoc({ tariff: S.tariff, sub: S.sub, season: pick }, "Enregistré");
       });
       var l = v.querySelector("#lo"); if (l) l.addEventListener("click", function () { v.remove(); logout(); });
@@ -870,7 +896,8 @@
   }
   function progRow() {
     var p = prog(), sub;
-    if (!srvOn()) sub = "Désactivée · le téléphone pilote seulement à la demande";
+    if (!srvOn()) sub = S.server && S.server.status === "session expirée" ? "Pilotage automatique interrompu : session expirée, réactivez-le" : "Désactivée · le téléphone pilote seulement à la demande";
+    else if (S.server.last_tick && Date.now() - new Date(S.server.last_tick).getTime() > 20 * 60e3) sub = "Attention : aucun relevé du serveur depuis " + ago(S.server.last_tick).replace("à ", "") + ". Le service est peut-être en pause.";
     else if (S.house && S.house.k !== "maison" && (!S.house.until || S.house.until > Date.now())) {
       var hh = HOUSE.filter(function (x) { return x.k === S.house.k; })[0];
       sub = (hh ? hh.n : "Mode") + " en cours" + (S.house.until ? " · reprise le " + new Date(S.house.until).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }) + " à " + hm(S.house.until) : "");
