@@ -341,7 +341,23 @@
     app.innerHTML =
       '<header class="gut"><div class="top" id="top"></div></header>' +
       '<main class="gut" id="main"><div class="loading">Chargement</div></main>';
-    document.getElementById("main").addEventListener("click", onMainClick);
+    var main0 = document.getElementById("main");
+    main0.addEventListener("click", onMainClick);
+    // Glisser vers la gauche ou la droite pour passer d'une piece a l'autre (hors clim animee et selecteurs).
+    var sx = null, sy = 0;
+    main0.addEventListener("touchstart", function (e) {
+      sx = null;
+      if (!unitById(S.view) || e.touches.length !== 1 || e.target.closest("canvas, .fanlvl, .vgrid, .modes, select, input")) return;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+    }, { passive: true });
+    main0.addEventListener("touchend", function (e) {
+      if (sx == null) return;
+      var dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
+      if (Math.abs(dx) < 70 || Math.abs(dy) > 45) return;
+      var i = S.units.indexOf(unitById(S.view)), j = i + (dx < 0 ? 1 : -1);
+      if (i < 0 || j < 0 || j >= S.units.length) return;
+      S.view = S.units[j].id; put("view", S.view); buzz(); draw();
+    }, { passive: true });
     document.getElementById("top").addEventListener("click", onMainClick);
     draw();
     api("list", {}).then(function (d) { S.offline = false; if (d.units) { S.units = d.units; draw(); loadEngine(); loadEnergy(); } }).catch(onErr);
@@ -365,11 +381,8 @@
       t.innerHTML = '<span></span><span class="word">Pilote Clim</span><button class="ib" data-settings aria-label="Réglages">' + svg(GEAR, 1.5) + '</button>';
       return;
     }
-    var rsw = S.units.map(function (x) {
-      return '<button class="rp' + (x.power ? " on" : "") + '" data-go="' + esc(x.id) + '" aria-current="' + (x.id === u.id) + '" style="--pc:' + EFFECT_C[effect(x)] + '"><i></i>' + esc(x.name) + '</button>';
-    }).join("");
     t.innerHTML = '<button class="ib" data-back aria-label="Retour">' + svg(BACK, 1.8) + '</button>' +
-      '<nav class="rsw" aria-label="Pièces">' + rsw + '</nav>' +
+      '<span class="ttl">' + esc(u.name) + '</span>' +
       '<button class="ib" data-roomset aria-label="Réglages de la pièce">' + svg(SLIDERS, 1.6) + '</button>';
   }
   function draw() {
@@ -414,7 +427,7 @@
     var seg = HOUSE.map(function (h) {
       return '<button data-house="' + h.k + '" aria-pressed="' + (h.k === cur) + '"><span class="c">' + svg(h.i, 1.6) + '</span>' + h.n + '</button>';
     }).join("") + '<button data-alloff aria-pressed="false"' + (on ? "" : " disabled") + '><span class="c">' + svg('<path d="M12 3v9M6.5 7a8 8 0 1 0 11 0"/>', 1.7) + '</span>Éteindre</button>';
-    var cap = hd ? hd.d + ' <span class="when">' + (S.house.until ? "Jusqu’au " + new Date(S.house.until).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }) + " à " + hm(S.house.until) : "Depuis " + hm(S.house.at)) + '.</span>' : "Un geste règle toute la maison.";
+    var cap = hd ? hd.d + ' <span class="when">' + (S.house.until ? "Jusqu’au " + new Date(S.house.until).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }) + " à " + hm(S.house.until) + "." : S.house.at && !isNaN(new Date(S.house.at)) ? "Depuis " + hm(S.house.at) + "." : "") + '</span>' : "Un geste règle toute la maison.";
 
     var cards = S.units.map(function (u) {
       var r = room(u), ef = effect(u);
@@ -557,7 +570,21 @@
     var roomRows = rooms.map(function (r) {
       return '<div class="rr"><span>' + esc(r.u.name) + '</span><span>' + fmt(r.kwh) + ' kWh</span><b>' + eur(r.kwh * t) + '</b></div>';
     }).join("");
-    var share = mTot > 0 ? mc / mTot * 100 : 0;
+    // Les clims ne remontent leurs donnees qu'une fois reliees au Wi-Fi : on ne compare que sur cette periode.
+    var firstClim = null;
+    S.units.forEach(function (u) { (S.energy[u.id] || []).forEach(function (e) { if (e.kwh > 0 && (!firstClim || e.d < firstClim)) firstClim = e.d; }); });
+    var tracked = cdays.filter(function (k) { return firstClim && k >= firstClim; }), tTot = 0;
+    tracked.forEach(function (k) { tTot += D[k]; });
+    var share = tTot > 0 ? mc / tTot * 100 : 0;
+    var since = firstClim && firstClim.slice(0, 7) === cmk && firstClim > cmk + "-01"
+      ? "Clims suivies depuis le " + (+firstClim.slice(8, 10) === 1 ? "1er" : +firstClim.slice(8, 10)) + " " + cmName + " : " : "";
+    var shareTxt = !firstClim || !tracked.length ? "Aucune donnée des clims sur ce mois."
+      : since + (share < 1 && mc > 0 ? "moins de 1 %" : Math.round(share) + " %") + " de l’électricité de la maison" + (since ? " sur cette période." : " sur la même période.");
+    shareTxt = shareTxt.charAt(0).toUpperCase() + shareTxt.slice(1);
+    var precise = !mmeas && !srvOn() && !DEMO
+      ? '<div class="warnbox"><b>Ces chiffres viennent de Mitsubishi et sous-estiment les faibles puissances.</b><span>Chaque clim n’envoie sa consommation que par paliers de 0,1 kWh : une clim qui tourne au ralenti toute la nuit peut n’en déclarer presque rien. ' +
+        'Pour une mesure fiable, activez la mesure : le serveur relèvera l’état des clims toutes les 5 minutes et déduira leur consommation réelle du compteur Linky. Aucun programme n’est lancé, vos clims ne changent que sur votre demande.</span>' +
+        '<button class="cta" data-measure>Activer la mesure</button></div>' : "";
     return '<div class="cons lk">' +
       '<div class="ch"><div><div class="cm">' + cap1(c.month) + ' à ce jour</div><div class="eur">' + eur(billCur) + '</div></div>' +
       '<div class="pj"><div class="cm">Fin de mois</div><div class="pv">' + (billProj == null ? "–" : "≈ " + eur(billProj, 0)) + '</div></div></div>' +
@@ -569,7 +596,7 @@
         '<div class="mchart"><span class="ymax">' + top + ' kWh</span><div class="cols" style="grid-template-columns:repeat(' + cdim + ',1fr)">' + cols + '</div></div>' +
         '<div class="xl">' + ticks + '</div></div>' +
       '<div class="climb"><div class="clh"><span>Climatisation · ' + cmName + (S.cmo === 0 ? " à ce jour" : "") + '</span><b>' + eur(mc * t) + '</b></div>' +
-        '<p class="cls">' + (share < 1 && clim > 0 ? "Moins de 1 %" : Math.round(share) + " %") + ' de l’électricité de la maison sur la même période.</p>' + roomRows + '</div>' +
+        '<p class="cls">' + esc(shareTxt) + '</p>' + roomRows + precise + '</div>' +
       '<details class="how"><summary>Comment c’est calculé</summary><p>La maison est mesurée par votre compteur Linky ; Enedis publie chaque journée le lendemain matin. ' +
         'Le coût applique votre contrat : ' + String(t).replace(".", ",") + ' € par kWh et ' + String(S.sub).replace(".", ",") + ' € d’abonnement par mois, compté au prorata des jours mesurés. ' +
         'La part des clims est ' + (meas ? "déduite de la courbe Linky, demi-heure par demi-heure, sur " + meas + " jour" + (meas > 1 ? "s" : "") + (meas < n ? ", et estimée par Mitsubishi sur les autres" : "") : "l’estimation de Mitsubishi ; elle sera déduite de la courbe Linky dès que le pilotage automatique relèvera l’état des clims") + '. ' +
@@ -621,7 +648,10 @@
     }
     var modeCap = { Heat: "Chauffe jusqu’à la température demandée.", Cool: "Rafraîchit jusqu’à la température demandée.", Automatic: "Choisit seule entre chaud et froid pour tenir la température demandée.", Dry: "Assèche l’air, sans beaucoup changer la température.", Fan: "Brasse l’air, sans chauffer ni refroidir." }[u.mode] || "";
 
-    return '<section class="room' + (u.power ? "" : " off") + '">' + (S.offline ? offlineHTML() : "") +
+    var seg = S.units.length > 1 ? '<nav class="rseg" aria-label="Pièces" style="grid-template-columns:repeat(' + S.units.length + ',1fr)">' + S.units.map(function (x) {
+      return '<button class="rp' + (x.power ? " on" : "") + '" data-go="' + esc(x.id) + '" aria-current="' + (x.id === u.id) + '" style="--pc:' + EFFECT_C[effect(x)] + '"><i></i><span>' + esc(x.name) + '</span></button>';
+    }).join("") + '</nav>' : "";
+    return '<section class="room' + (u.power ? "" : " off") + '">' + (S.offline ? offlineHTML() : "") + seg +
       '<p class="status">' + status + '</p>' + progLine(u) +
       '<div class="stage"><div data-cv="room:' + esc(u.id) + '"></div>' +
         '<div class="vp" id="vp">' + vaneCap(u.power, vv, vh) + '</div>' +
@@ -674,6 +704,7 @@
     if (b.hasAttribute("data-open")) { S.view = b.getAttribute("data-open"); put("view", S.view); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-house")) { pickHouse(b.getAttribute("data-house")); return; }
     if (S.view === "prog" && onProgClick(b)) return;
+    if (b.hasAttribute("data-measure")) { openServer(false); return; }
     if (b.hasAttribute("data-conso")) { S.view = "conso"; put("view", "conso"); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-prog")) { S.view = "prog"; put("view", "prog"); buzz(); draw(); window.scrollTo(0, 0); return; }
     if (b.hasAttribute("data-settings")) { openSettings(); return; }
@@ -997,7 +1028,7 @@
   }
   function progRow() {
     var p = prog(), sub;
-    if (!srvOn()) sub = S.server && S.server.status === "session expirée" ? "Programmes interrompus : connexion à réactiver" : "Programmes à activer · les clims ne changent que sur votre demande";
+    if (!srvOn()) sub = S.server && S.server.status === "session expirée" ? "Connexion du serveur à réactiver" : "Programmes à activer · les clims ne changent que sur votre demande";
     else if (S.server.last_tick && Date.now() - new Date(S.server.last_tick).getTime() > 20 * 60e3) sub = "Attention : aucun contrôle depuis " + ago(S.server.last_tick).replace("à ", "") + ". Le service est peut-être en pause.";
     else if (S.house && S.house.k !== "maison" && (!S.house.until || S.house.until > Date.now())) {
       var hh = HOUSE.filter(function (x) { return x.k === S.house.k; })[0];
@@ -1038,7 +1069,7 @@
     // Un seul interrupteur. Trois etats : actifs, en pause, a activer (installation faite une fois).
     var on = srvOn() && p.enabled, warn = srvOn() && S.server.last_tick && Date.now() - new Date(S.server.last_tick).getTime() > 20 * 60e3;
     var sub = !srvOn() ? (S.server && S.server.status === "session expirée" ? "Interrompus : la connexion du serveur a expiré. Réactivez-les." : "À activer. Une fois activés, les programmes tournent même téléphone éteint.")
-      : !p.enabled ? "En pause : les clims ne changent que sur votre demande."
+      : !p.enabled ? "En pause : les clims ne changent que sur votre demande. La mesure de consommation est active."
       : warn ? "Attention : aucun contrôle depuis " + ago(S.server.last_tick).replace("à ", "") + ". Le service est peut-être en pause."
       : "Actifs · dernier contrôle " + ago(S.server.last_tick) + ".";
     var en = '<div class="pcard"><div class="prow2"><span><b>Programmes</b><small>' + esc(sub) + '</small></span>' +
@@ -1073,7 +1104,7 @@
 
   function onProgClick(b) {
     if (b.hasAttribute("data-pen")) {
-      if (!srvOn()) { openServer(); return true; }
+      if (!srvOn()) { openServer(true); return true; }
       saveDoc({ program: { enabled: !prog().enabled } }, prog().enabled ? "Programmes en pause" : "Programmes actifs");
       return true;
     }
@@ -1183,9 +1214,13 @@
   }
 
   // Liaison de la session dediee au serveur : le mot de passe ne sert qu'une fois et n'est conserve nulle part.
-  function openServer() {
-    sheet('<h3>Activer les programmes</h3>' +
-      '<p class="hint" style="margin-top:0">Étape faite une seule fois. Pour appliquer vos programmes même téléphone éteint, le serveur ouvre sa propre connexion à MELCloud. Saisissez une dernière fois votre mot de passe : il n’est conservé nulle part.</p>' +
+  // withProgram : true depuis l'interrupteur Programmes, false pour la seule mesure de consommation.
+  function openServer(withProgram) {
+    sheet('<h3>' + (withProgram ? "Activer les programmes" : "Activer la mesure") + '</h3>' +
+      '<p class="hint" style="margin-top:0">' + (withProgram
+        ? "Étape faite une seule fois. Pour appliquer vos programmes même téléphone éteint, le serveur ouvre sa propre connexion à MELCloud."
+        : "Le serveur ouvre sa propre connexion à MELCloud pour relever l’état des clims toutes les 5 minutes. Il ne change aucun réglage : aucun programme n’est lancé.") +
+      ' Saisissez une dernière fois votre mot de passe : il n’est conservé nulle part.</p>' +
       '<label class="fld"><span>E-mail MELCloud</span><input id="se" type="email" autocomplete="username" value="' + esc(S.email || "") + '"></label>' +
       '<label class="fld"><span>Mot de passe</span><input id="sp" type="password" autocomplete="current-password"></label>' +
       '<button class="cta" id="go">Activer</button><p class="err" id="er"></p>', function (v) {
@@ -1207,8 +1242,8 @@
           S.fails = 0; put("fails", "0");
           return api("link", { server: d.token }, FN_ENGINE);
         }).then(function () {
-          v.remove(); toast("Programmes activés");
-          return saveDoc({ program: { enabled: true } });
+          v.remove(); toast(withProgram ? "Programmes activés" : "Mesure activée");
+          if (withProgram) return saveDoc({ program: { enabled: true } });
         }).then(function () {
           api("run", {}, FN_ENGINE).catch(function () {}).then(loadEngine);
         }).catch(function (e) {

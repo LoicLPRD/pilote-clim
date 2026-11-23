@@ -236,6 +236,14 @@
   .rp[aria-current="true"] { background: var(--panel-2); color: var(--fg); font-weight: 500; }
   .room { display: flex; flex-direction: column; align-items: center; text-align: center; }
   .status { margin: 10px 0 0; color: var(--muted); font-size: .9rem; }
+  .rseg { display: grid; gap: 3px; width: 100%; background: var(--panel); border-radius: 999px; padding: 3px; margin: 2px 0 6px; }
+  .rseg .rp { position: relative; justify-content: center; min-width: 0; padding: 10px 6px; font-size: .8rem; }
+  .rseg .rp span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rseg .rp i { position: absolute; top: 7px; right: 9px; width: 5px; height: 5px; }
+  .warnbox { margin-top: 18px; background: var(--panel); border-radius: 12px; padding: 14px 16px; text-align: left; display: flex; flex-direction: column; gap: 6px; font-size: .8rem; line-height: 1.5; }
+  .warnbox b { font-weight: 500; color: var(--fg); }
+  .warnbox span { color: var(--muted); }
+  .warnbox .cta { margin-top: 8px; height: 42px; }
   .status b { color: var(--fg); font-weight: 500; }
   .stage { position: relative; width: calc(100% + 40px); margin: 4px -20px 0; }
   .stage .cv.big { display: block; width: 100%; height: 300px; cursor: grab; -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent); mask-image: linear-gradient(to bottom, #000 72%, transparent); }
@@ -339,8 +347,8 @@
 <body>
 <div id="app"></div>
 <div class="toast" id="toast"></div>
-<script src="prog.js?v=18"></script>
-<script src="split.js?v=18"></script>
-<script src="app.js?v=18"></script>
+<script src="prog.js?v=20"></script>
+<script src="split.js?v=20"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>
