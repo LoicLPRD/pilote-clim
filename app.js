@@ -565,7 +565,7 @@
     });
 
     var monthNav = '<div class="mnav"><button class="ib" data-cm="-1" aria-label="Mois précédent"' + (S.cmo <= minOff ? " disabled" : "") + '>' + svg('<path d="m15 6-6 6 6 6"/>', 1.8) + '</button>' +
-      '<span><b>' + cap1(cmName) + ' ' + cm.getFullYear() + '</b><small>' + (cdays.length ? fmt(mTot) + " kWh · " + eur(mTot * t) + " d’électricité" + (S.cmo === 0 ? " à ce jour" : "") : "aucune mesure") + '</small></span>' +
+      '<span><b>' + cap1(cmName) + ' ' + cm.getFullYear() + '</b><small>' + (cdays.length ? fmt(mTot) + " kWh · " + eur(mTot * t + S.sub * cdays.length / cdim) + " abonnement compris" + (S.cmo === 0 ? " à ce jour" : "") : "aucune mesure") + '</small></span>' +
       '<button class="ib" data-cm="1" aria-label="Mois suivant"' + (S.cmo >= 0 ? " disabled" : "") + '>' + svg('<path d="m9 6 6 6-6 6"/>', 1.8) + '</button></div>';
     var roomRows = rooms.map(function (r) {
       return '<div class="rr"><span>' + esc(r.u.name) + '</span><span>' + fmt(r.kwh) + ' kWh</span><b>' + eur(r.kwh * t) + '</b></div>';
@@ -598,7 +598,7 @@
       '<div class="climb"><div class="clh"><span>Climatisation · ' + cmName + (S.cmo === 0 ? " à ce jour" : "") + '</span><b>' + eur(mc * t) + '</b></div>' +
         '<p class="cls">' + esc(shareTxt) + '</p>' + roomRows + precise + '</div>' +
       '<details class="how"><summary>Comment c’est calculé</summary><p>La maison est mesurée par votre compteur Linky ; Enedis publie chaque journée le lendemain matin. ' +
-        'Le coût applique votre contrat : ' + String(t).replace(".", ",") + ' € par kWh et ' + String(S.sub).replace(".", ",") + ' € d’abonnement par mois, compté au prorata des jours mesurés. ' +
+        'Le coût applique votre contrat : ' + String(t).replace(".", ",") + ' € par kWh et ' + String(S.sub).replace(".", ",") + ' € d’abonnement par mois. Tous les montants de la maison incluent l’abonnement, compté au prorata des jours mesurés. Le coût des clims et des pièces n’en contient pas : l’abonnement serait payé même clims éteintes. ' +
         'La part des clims est ' + (meas ? "déduite de la courbe Linky, demi-heure par demi-heure, sur " + meas + " jour" + (meas > 1 ? "s" : "") + (meas < n ? ", et estimée par Mitsubishi sur les autres" : "") : "l’estimation de Mitsubishi ; elle sera déduite de la courbe Linky dès que le pilotage automatique relèvera l’état des clims") + '. ' +
         'La projection prolonge le rythme moyen des jours mesurés.</p></details>' +
       '</div>';
@@ -614,7 +614,8 @@
   function dayTxt(k, kwh, clim) {
     var d = new Date(k + "T12:00:00");
     var s = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-    return s.charAt(0).toUpperCase() + s.slice(1) + " : " + fmt(kwh) + " kWh, " + eurS(kwh * S.tariff) + (clim > 0.05 ? ", dont clims " + fmt(clim) + " kWh" : ", clims à l’arrêt");
+    var dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    return s.charAt(0).toUpperCase() + s.slice(1) + " : " + fmt(kwh) + " kWh, " + eurS(kwh * S.tariff + S.sub / dim) + " abonnement compris" + (clim > 0.05 ? ", dont clims " + fmt(clim) + " kWh" : ", clims à l’arrêt");
   }
 
 
